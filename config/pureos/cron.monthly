@@ -1,0 +1,18 @@
+#! /bin/bash
+#
+# Run at the beginning of the month via cron, out of dak's crontab.
+
+set -e
+set -o pipefail
+set -u
+export SCRIPTVARS=/srv/dak/pureos/tanglu/vars
+. $SCRIPTVARS
+
+################################################################################
+
+DATE=$(date +%Y-%m)
+cd ${base}/log
+touch $DATE
+ln -sf $DATE current
+chmod g+w $DATE
+chown dak:ftpteam $DATE

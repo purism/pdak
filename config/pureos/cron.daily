@@ -1,0 +1,33 @@
+#! /bin/bash
+#
+
+set -e
+set -o pipefail
+set -u
+
+export SCRIPTVARS=/srv/dak/config/pureos/vars
+. $SCRIPTVARS
+
+PROGRAM="cron.daily"
+# Start logging
+NOW=`date "+%Y.%m.%d-%H:%M:%S"`
+LOGFILE="$logdir/daily_${NOW}.log"
+exec >> "$LOGFILE" 2>&1
+
+################################################################################
+# Clean out old packages
+dak auto-decruft -s $staging_suite
+dak clean-suites -m 10000
+dak clean-queues
+
+# Send a report on NEW/BYHAND packages
+dak queue-report -d new,byhand | mail -e -s "PureOS NEW and BYHAND on $(date +%D)" -a "From: PureOS Archive Masters <archive@puri.sm>" archive@puri.sm
+
+# and one on crufty packages
+dak cruft-report -R --mode bdo -s staging > $webdir/cruft-report-daily.txt
+
+################################################################################
+echo "Finally, all is done, compressing logfile"
+exec > /dev/null 2>&1
+
+bzip2 -9 "$LOGFILE"

@@ -1,0 +1,44 @@
+#!/bin/bash
+#
+# Run once a week via cron, out of dak's crontab.
+
+set -e
+set -o pipefail
+set -u
+# ERR traps should be inherited from functions too. (And command
+# substitutions and subshells and whatnot, but for us the functions is
+# the important part here)
+set -E
+export SCRIPTVARS=/srv/dak/config/pureos/vars
+. $SCRIPTVARS
+
+# Start logging
+NOW=`date "+%Y.%m.%d-%H:%M:%S"`
+LOGFILE="$logdir/weekly_${NOW}.log"
+exec > "$LOGFILE" 2>&1
+
+cleanup() {
+  echo "Cleanup"
+  rm -f "$LOGFILE"
+}
+trap cleanup 0
+
+################################################################################
+
+# Purge empty directories
+echo "Purging empty directories in $ftpdir/pool/"
+
+if [ ! -z "$(find $ftpdir/pool/ -type d -empty)" ]; then
+   find $ftpdir/pool/ -type d -empty | xargs rmdir;
+fi
+
+echo "Fixing symlinks in $ftpdir"
+symlinks -d -r $ftpdir
+
+echo "Finally, all is done, compressing logfile"
+exec > /dev/null 2>&1
+
+bzip2 -9 "$LOGFILE"
+
+
+################################################################################

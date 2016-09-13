@@ -1,0 +1,428 @@
+# -*- mode:sh -*-
+# Timestamp. Used for dinstall stat graphs
+function ts() {
+        echo "Archive maintenance timestamp ($1): $(date +%H:%M:%S)"
+}
+
+# Remove daily lock
+function remove_daily_lock() {
+    rm -f $LOCK_DAILY
+}
+
+# Remove all locks
+function remove_all_locks() {
+    rm -f $LOCK_DAILY $LOCK_ACCEPTED $LOCK_NEW
+}
+
+# If we error out this one is called, *FOLLOWED* by cleanup above
+function onerror() {
+    ERRDATE=$(date "+%Y.%m.%d-%H:%M:%S")
+
+    subject="ATTENTION ATTENTION!"
+    if [ "${error}" = "false" ]; then
+        subject="${subject} (continued)"
+    else
+        subject="${subject} (interrupted)"
+    fi
+    subject="${subject} dinstall error at ${ERRDATE} in ${STAGEFILE} - (Be quiet, Brain, or I'll stab you with a Q-tip)"
+
+    if [ -r "${STAGEFILE}.log" ]; then
+        cat "${STAGEFILE}.log"
+    else
+        echo "file ${STAGEFILE}.log does not exist, sorry"
+    fi | mail -s "${subject}" -a "X-Debian: DAK" -a "From: PureOS Archive Masters <archive@puri.sm>" mak@debian.org
+}
+
+########################################################################
+# the actual dinstall functions follow                                 #
+########################################################################
+
+function cruft() {
+    log "Checking for cruft in overrides"
+    dak check-overrides
+}
+
+function dominate() {
+    log "Removing obsolete source and binary associations"
+    dak dominate
+    dak manage-debug-suites staging-debug dasyatis-debug
+    dak manage-build-queues -a
+}
+
+function fingerprints() {
+    log "Updating fingerprints"
+    dak import-keyring -U '%s' /srv/dak/keyrings/upload-keyring.gpg
+
+    # TODO: We could send the result to an email adress...
+}
+
+function overrides() {
+    log "Writing overrides into text files"
+    cd $overridedir
+    dak make-overrides
+
+    # FIXME
+    # IMPORTANT-B
+    #rm -f override.bartholomea.all3
+    #for i in main contrib non-free main.debian-installer; do cat override.bartholomea.$i >> override.bartholomea.all3; done
+}
+
+function mpfm() {
+    local archiveroot
+
+    log "Generating package / file mapping"
+    for archive in "${public_archives[@]}"; do
+        archiveroot="$(get_archiveroot "${archive}")"
+        dak make-pkg-file-mapping "${archive}" | bzip2 -9 > "${archiveroot}/indices/package-file.map.bz2"
+    done
+}
+
+function packages() {
+    log "Generating Packages and Sources files"
+    for archive in "${public_archives[@]}"; do
+        dak generate-packages-sources2 -a "${archive}"
+        dak contents generate -a "${archive}"
+    done
+}
+
+function pdiff() {
+    log "Generating pdiff files"
+    dak generate-index-diffs
+}
+
+function mirror_build_queues() {
+    cd $public_buildqdir
+    # sync the dists dir without hardlinks
+    # the pool is symlinked already
+    rsync -aqH --delete $buildqdir/dists .
+}
+
+function mirror() {
+    local archiveroot
+
+    # always mirror build queues first
+    mirror_build_queues
+
+    archiveroot="$(get_archiveroot "janus")"
+    cd $public_ftpdir
+    # sync the dists dir without hardlinks
+    # (this is done to prevent archive issues while the indices are rebuilt)
+    rsync -aqH --delete ${archiveroot}/dists ./pureos/
+}
+
+function release() {
+    log "Generating Release files"
+    for archive in "${public_archives[@]}"; do
+        dak generate-releases -a "${archive}"
+    done
+}
+
+function dakcleanup() {
+    log "Cleanup old packages/files"
+    dak clean-suites -m 10000
+    dak clean-queues -i "$unchecked"
+}
+
+function mklslar() {
+    local archiveroot
+    local FILENAME=ls-lR
+
+    for archive in "${public_archives[@]}"; do
+        archiveroot="$(get_archiveroot "${archive}")"
+        cd "${archiveroot}"
+
+        log "Removing any core files ..."
+        find -type f -name core -print -delete
+
+        log "Checking symlinks ..."
+        symlinks -rd .
+
+        log "Creating recursive directory listing ... "
+        rm -f ${FILENAME}.gz
+        TZ=UTC ls -lR | gzip -9c --rsyncable > ${FILENAME}.gz
+    done
+}
+
+function mkmaintainers() {
+    local archiveroot
+    local indices
+
+    log 'Creating Maintainers index ... '
+
+    for archive in "${public_archives[@]}"; do
+        archiveroot="$(get_archiveroot "${archive}")"
+	indices="${archiveroot}/indices"
+	if ! [ -d "${indices}" ]; then
+	    mkdir "${indices}"
+	fi
+        cd "${indices}"
+
+        dak make-maintainers -a "${archive}"
+        gzip -9v --rsyncable <Maintainers >Maintainers.gz
+        gzip -9v --rsyncable <Uploaders >Uploaders.gz
+    done
+}
+
+function mkfilesindices() {
+    set +o pipefail
+    umask 002
+    cd $base/ftp/indices/files/components
+
+    ARCHLIST=$(tempfile)
+
+    log "Querying postgres"
+    local query="
+      SELECT './pool/' || c.name || '/' || f.filename AS path, a.arch_string AS arch_string
+      FROM files f
+      JOIN files_archive_map af ON f.id = af.file_id
+      JOIN component c ON af.component_id = c.id
+      JOIN archive ON af.archive_id = archive.id
+      LEFT OUTER JOIN
+        (binaries b
+         JOIN architecture a ON b.architecture = a.id)
+        ON f.id = b.file
+      WHERE archive.name = 'ftp-master'
+      ORDER BY path, arch_string
+    "
+    psql -At -c "$query" >$ARCHLIST
+
+    includedirs () {
+        perl -ne 'print; while (m,/[^/]+$,) { $_=$`; print $_ . "\n" unless $d{$_}++; }'
+    }
+    poolfirst () {
+        perl -e '@nonpool=(); while (<>) { if (m,^\./pool/,) { print; } else { push @nonpool, $_; } } print for (@nonpool);'
+    }
+
+    log "Generating sources list"
+    (
+        sed -n 's/|$//p' $ARCHLIST
+        cd $base/ftp
+        find ./dists -maxdepth 1 \! -type d
+        find ./dists \! -type d | grep "/source/"
+    ) | sort -u | gzip -9 > source.list.gz
+
+    log "Generating arch lists"
+
+    ARCHES=$( (<$ARCHLIST sed -n 's/^.*|//p'; echo amd64) | grep . | grep -v all | sort -u)
+    for a in $ARCHES; do
+        (sed -n "s/|$a$//p" $ARCHLIST
+            sed -n 's/|all$//p' $ARCHLIST
+
+            cd $base/ftp
+            find ./dists -maxdepth 1 \! -type d
+            find ./dists \! -type d | grep -E "(proposed-updates.*_$a.changes$|/main/disks-$a/|/main/installer-$a/|/Contents-$a|/binary-$a/)"
+        ) | sort -u | gzip -9 > arch-$a.list.gz
+    done
+
+    log "Generating suite lists"
+
+    suite_list () {
+	local suite_id="$(printf %d $1)"
+	local query
+	query="
+          SELECT DISTINCT './pool/' || c.name || '/' || f.filename
+          FROM
+            (SELECT sa.source AS source
+               FROM src_associations sa
+              WHERE sa.suite = $suite_id
+             UNION
+             SELECT esr.src_id
+               FROM extra_src_references esr
+               JOIN bin_associations ba ON esr.bin_id = ba.bin
+               WHERE ba.suite = $suite_id
+             UNION
+             SELECT b.source AS source
+               FROM bin_associations ba
+               JOIN binaries b ON ba.bin = b.id WHERE ba.suite = $suite_id) s
+            JOIN dsc_files df ON s.source = df.source
+            JOIN files f ON df.file = f.id
+            JOIN files_archive_map af ON f.id = af.file_id
+            JOIN component c ON af.component_id = c.id
+            JOIN archive ON af.archive_id = archive.id
+            WHERE archive.name = 'ftp-master'
+        "
+	psql -F' ' -A -t -c "$query"
+
+	query="
+          SELECT './pool/' || c.name || '/' || f.filename
+          FROM bin_associations ba
+          JOIN binaries b ON ba.bin = b.id
+          JOIN files f ON b.file = f.id
+          JOIN files_archive_map af ON f.id = af.file_id
+          JOIN component c ON af.component_id = c.id
+          JOIN archive ON af.archive_id = archive.id
+          WHERE ba.suite = $suite_id AND archive.name = 'ftp-master'
+        "
+	psql -F' ' -A -t -c "$query"
+    }
+
+    psql -F' ' -At -c "SELECT id, suite_name FROM suite" |
+    while read id suite; do
+        [ -e $base/ftp/dists/$suite ] || continue
+        (
+            (cd $base/ftp
+                distname=$(cd dists; readlink $suite || echo $suite)
+                find ./dists/$distname \! -type d
+                for distdir in ./dists/*; do
+                    [ "$(readlink $distdir)" != "$distname" ] || echo $distdir
+                done
+            )
+            suite_list $id
+        ) | sort -u | gzip -9 > suite-${suite}.list.gz
+    done
+
+    log "Finding everything on the ftp site to generate sundries"
+    (cd $base/ftp; find . \! -type d \! -name 'Archive_Maintenance_In_Progress' | sort) >$ARCHLIST
+
+    rm -f sundries.list
+    zcat *.list.gz | cat - *.list | sort -u |
+    diff - $ARCHLIST | sed -n 's/^> //p' > sundries.list
+
+    log "Generating files list"
+
+    for a in $ARCHES; do
+        (echo ./project/trace; zcat arch-$a.list.gz source.list.gz) |
+        cat - sundries.list dists.list project.list docs.list indices.list |
+        sort -u | poolfirst > ../arch-$a.files
+    done
+
+    rm -f $ARCHLIST
+    log "Done!"
+    set -o pipefail
+}
+
+function mkchecksums() {
+    dsynclist=$dbdir/dsync.list
+    md5list=$indices/md5sums
+
+    log -n "Creating md5 / dsync index file ... "
+
+    cd "$ftpdir"
+    ${bindir}/dsync-flist -q generate $dsynclist --exclude $dsynclist --md5
+    ${bindir}/dsync-flist -q md5sums $dsynclist | gzip -9n > ${md5list}.gz
+    ${bindir}/dsync-flist -q link-dups $dsynclist || true
+}
+
+function expire() {
+    log "Expiring old database dumps..."
+    cd $base/backup
+    $scriptsdir/expire_dumps -d . -p -f "dump_*"
+}
+
+function transitionsclean() {
+    log "Removing out of date transitions..."
+    cd $base
+    dak transitions -c -a
+}
+
+function mirrorpush() {
+    log "Checking the public archive copy"
+    cd ${mirrordir}/dists
+
+    broken=0
+    for release in $(find . -name "InRelease"); do
+        echo "Processing: ${release}"
+        subdir=${release%/InRelease}
+        while read SHASUM SIZE NAME; do
+            if ! [ -f "${subdir}/${NAME}" ]; then
+               bname=$(basename ${NAME})
+                if [[ "${bname}" =~ ^(Packages|Sources|Translation-[a-zA-Z_]+)$ ]]; then
+                    # We don't keep unpacked files, don't check for their existance.
+                    # We might want to go and check their unpacked shasum, but right now
+                    # I don't care. I believe it should be enough if all the packed shasums
+                    # match.
+                    continue
+                fi
+                broken=$(( broken + 1 ))
+                echo "File ${subdir}/${NAME} is missing"
+                continue
+            fi
+
+           # We do have symlinks in the tree (see the contents files currently).
+           # So we use "readlink -f" to check the size of the target, as thats basically
+           # what gen-releases does
+            fsize=$(stat -c %s $(readlink -f "${subdir}/${NAME}"))
+            if [ ${fsize} -ne ${SIZE} ]; then
+                broken=$(( broken + 1 ))
+                echo "File ${subdir}/${NAME} has size ${fsize}, expected is ${SIZE}"
+                continue
+            fi
+
+           fshasum=$(sha1sum $(readlink -f "${subdir}/${NAME}"))
+            fshasum=${fshasum%% *}
+            if [ "${fshasum}" != "${SHASUM}" ]; then
+                broken=$(( broken + 1 ))
+                echo "File ${subdir}/${NAME} has checksum ${fshasum}, expected is ${SHASUM}"
+                continue
+            fi
+        done < <(sed '1,/SHA1:/d' "${release}" | sed '/SHA256:/,$d')
+    done
+
+    if [ $broken -gt 0 ]; then
+        log_error "Trouble with the public mirror, found ${broken} errors"
+        return 21
+    fi
+}
+
+function stats() {
+    log "Updating stats data"
+    cd $configdir
+    dak stats arch-space > $webdir/arch-space
+    dak stats pkg-nums > $webdir/pkg-nums
+}
+
+function cleantransactions() {
+    log "Cleanup transaction ids older than 3 months"
+    cd $base/backup/
+    find -maxdepth 1 -mindepth 1 -type f -name 'txid_*' -mtime +90 -delete
+}
+
+# save timestamp when we start
+function savetimestamp() {
+	NOW=`date "+%Y.%m.%d-%H:%M:%S"`
+	echo ${NOW} > "${dbdir}/dinstallstart"
+}
+
+function renamelogfile() {
+    if [ -f "${dbdir}/dinstallstart" ]; then
+        NOW=$(cat "${dbdir}/dinstallstart")
+        mv "$LOGFILE" "$logdir/dinstall_${NOW}.log"
+        bzip2 -9 "$logdir/dinstall_${NOW}.log"
+    else
+        error "Problem, I don't know when dinstall started, unable to do log statistics."
+        NOW=`date "+%Y.%m.%d-%H:%M:%S"`
+        mv "$LOGFILE" "$logdir/dinstall_${NOW}.log"
+        bzip2 -9 "$logdir/dinstall_${NOW}.log"
+    fi
+}
+
+# do a last run of process-unchecked before dinstall is on.
+function process_unchecked() {
+    log "Processing the unchecked queue"
+    UNCHECKED_WITHOUT_LOCK="-p"
+    do_unchecked
+}
+
+# Function to update a "statefile" telling people what we are doing
+# (more or less).
+#
+# This should be called with the argument(s)
+#  - Status name we want to show.
+#
+function state() {
+    RIGHTNOW="$(date -u +"%a %b %d %T %Z %Y (%s)")"
+    cat >"${DINSTALLSTATE}" <<EOF
+Dinstall start: ${DINSTALLBEGIN}
+Current action: ${1}
+Action start: ${RIGHTNOW}
+EOF
+}
+
+# extract changelogs and stuff
+function changelogs() {
+    log "Extracting changelogs"
+    dak make-changelog -e -a janus
+    mkdir -p ${exportpublic}/changelogs
+    cd ${exportpublic}/changelogs
+    rsync -aHW --delete --delete-after --ignore-errors ${exportdir}/changelogs/. .
+}

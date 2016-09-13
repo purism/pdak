@@ -1,0 +1,53 @@
+# locations used by many scripts
+
+base=/srv/dak
+dakbase=/opt
+dakdir=$dakbase/dak
+public=/srv/master.puri.sm
+bindir=$base/bin
+ftpdir=$base/ftp
+public_ftpdir=/srv/archive.puri.sm
+webdir=$public/web
+indices=$ftpdir/indices
+archs=$(dak admin a list | tr '\n' ' ')
+
+scriptdir=$base/scripts
+masterdir=$base/dak
+configdir=$base/config/pureos
+scriptsdir=$configdir/scripts
+dbdir=$base/database
+lockdir=$base/lock
+stagedir=$lockdir/stages
+overridedir=$scriptdir/override
+extoverridedir=$scriptdir/external-overrides
+logdir=$base/log/cron
+dbbackupdir=$base/backup/db_full
+
+queuedir=$base/queue
+unchecked=/pub/ftp/incoming
+accepted=$queuedir/accepted
+mirrordir=$base/mirror
+incoming=$base/incoming
+newstage=$queuedir/newstage
+exportdir=$base/export
+exportpublic=$public/rsync/export
+buildqdir=$queuedir/build
+public_buildqdir=/srv/buildd.puri.sm/build-queues
+
+ftpgroup=debadmin
+
+public_archives=(repo)
+devel_suite="fresh"
+staging_suite="landing"
+suites_incoming="landing"
+queues_incoming=""
+
+TMPDIR=${base}/tmp
+
+PATH=$masterdir:$PATH
+umask 022
+unset CDPATH
+GZIP='--rsyncable' ; export GZIP
+
+# Set the database variables
+eval $(dak admin config db-shell)

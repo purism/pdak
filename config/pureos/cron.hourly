@@ -1,0 +1,43 @@
+#! /bin/bash
+#
+# Executed hourly via cron, out of dak's crontab.
+
+set -e
+set -o pipefail
+set -u
+
+export SCRIPTVARS=/srv/dak/config/pureos/vars
+. $SCRIPTVARS
+
+PROGRAM="Hourly"
+########################################################################
+# Functions                                                            #
+########################################################################
+# common functions are "outsourced"
+. "${configdir}/common"
+
+dak import-users-from-passwd
+
+# do not run show-new and other stuff in parallel
+LOCKFILE="$lockdir/unchecked.lock"
+cleanup() {
+    rm -f "${LOCKFILE}"
+}
+
+if lockfile -r16 $LOCKFILE 2> /dev/null; then
+    trap cleanup EXIT
+    do_new
+    dak show-new > /dev/null || true
+    cleanup
+    trap - EXIT
+fi
+
+dak queue-report -n > $webdir/new.html
+dak queue-report -8 -d new,byhand -r $webdir/stat
+dak graph -n new,byhand -r $webdir/stat -i $webdir/stat -x $scriptsdir/rrd-release-freeze-dates
+
+$scriptsdir/generate-d-i
+
+for keyring in $(dak admin k list-binary); do
+    dak import-keyring --generate-users "%s" ${keyring}
+done
