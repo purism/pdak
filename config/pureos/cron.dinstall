@@ -158,6 +158,14 @@ trap remove_daily_lock EXIT TERM HUP INT QUIT
 
 touch "${LOCK_BRITNEY}"
 
+GO=(
+    FUNC="savetimestamp"
+    TIME=""
+    ARGS=""
+    ERR="false"
+)
+stage $GO &
+
 lockfile "$LOCK_ACCEPTED"
 lockfile "$LOCK_NEW"
 trap remove_all_locks EXIT TERM HUP INT QUIT

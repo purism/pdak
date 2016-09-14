@@ -356,7 +356,7 @@ function renamelogfile() {
         mv "$LOGFILE" "$logdir/dinstall_${NOW}.log"
         bzip2 -9 "$logdir/dinstall_${NOW}.log"
     else
-        error "Problem, I don't know when dinstall started, unable to do log statistics."
+        log_error "Problem, I don't know when dinstall started, unable to do log statistics."
         NOW=`date "+%Y.%m.%d-%H:%M:%S"`
         mv "$LOGFILE" "$logdir/dinstall_${NOW}.log"
         bzip2 -9 "$logdir/dinstall_${NOW}.log"
