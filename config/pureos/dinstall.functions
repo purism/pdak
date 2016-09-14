@@ -79,20 +79,10 @@ function pdiff() {
     dak generate-index-diffs
 }
 
-function mirror_build_queues() {
-    cd $public_buildqdir
-    # sync the dists dir without hardlinks
-    # the pool is symlinked already
-    rsync -aqH --delete $buildqdir/dists .
-}
-
 function mirror() {
     local archiveroot
 
-    # always mirror build queues first
-    mirror_build_queues
-
-    archiveroot="$(get_archiveroot "janus")"
+    archiveroot="$(get_archiveroot "repo")"
     cd $public_ftpdir
     # sync the dists dir without hardlinks
     # (this is done to prevent archive issues while the indices are rebuilt)
@@ -410,7 +400,7 @@ EOF
 # extract changelogs and stuff
 function changelogs() {
     log "Extracting changelogs"
-    dak make-changelog -e -a janus
+    dak make-changelog -e -a repo
     mkdir -p ${exportpublic}/changelogs
     cd ${exportpublic}/changelogs
     rsync -aHW --delete --delete-after --ignore-errors ${exportdir}/changelogs/. .

@@ -206,13 +206,15 @@ GO=(
 stage $GO
 
 state "dists/"
-GO=(
-    FUNC="pdiff"
-    TIME="pdiff"
-    ARGS=""
-    ERR=""
-)
-stage $GO
+
+# TODO: We don't want diffs at time
+#GO=(
+#    FUNC="pdiff"
+#    TIME="pdiff"
+#    ARGS=""
+#    ERR=""
+#)
+#stage $GO
 
 GO=(
     FUNC="release"
