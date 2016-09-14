@@ -5,7 +5,7 @@
 set -e
 set -o pipefail
 set -u
-export SCRIPTVARS=/srv/dak/pureos/tanglu/vars
+export SCRIPTVARS=/opt/dak/config/pureos/vars
 . $SCRIPTVARS
 
 ################################################################################
@@ -15,4 +15,4 @@ cd ${base}/log
 touch $DATE
 ln -sf $DATE current
 chmod g+w $DATE
-chown dak:ftpteam $DATE
+chown dak:ftpmaster $DATE

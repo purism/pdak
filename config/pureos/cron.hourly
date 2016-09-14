@@ -16,8 +16,6 @@ PROGRAM="Hourly"
 # common functions are "outsourced"
 . "${configdir}/common"
 
-dak import-users-from-passwd
-
 # do not run show-new and other stuff in parallel
 LOCKFILE="$lockdir/unchecked.lock"
 cleanup() {
@@ -34,7 +32,6 @@ fi
 
 dak queue-report -n > $webdir/new.html
 dak queue-report -8 -d new,byhand -r $webdir/stat
-dak graph -n new,byhand -r $webdir/stat -i $webdir/stat -x $scriptsdir/rrd-release-freeze-dates
 
 $scriptsdir/generate-d-i
 
