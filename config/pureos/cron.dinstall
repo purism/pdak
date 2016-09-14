@@ -189,14 +189,6 @@ GO=(
 stage $GO
 
 GO=(
-    FUNC="overrides"
-    TIME="overrides"
-    ARGS=""
-    ERR=""
-)
-stage $GO
-
-GO=(
     FUNC="mpfm"
     TIME="pkg-file-mapping"
     ARGS=""

@@ -56,17 +56,6 @@ function fingerprints() {
     # TODO: We could send the result to an email adress...
 }
 
-function overrides() {
-    log "Writing overrides into text files"
-    cd $overridedir
-    dak make-overrides
-
-    # FIXME
-    # IMPORTANT-B
-    #rm -f override.bartholomea.all3
-    #for i in main contrib non-free main.debian-installer; do cat override.bartholomea.$i >> override.bartholomea.all3; done
-}
-
 function mpfm() {
     local archiveroot
 
