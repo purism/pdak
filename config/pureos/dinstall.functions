@@ -282,18 +282,6 @@ function mkchecksums() {
     ${bindir}/dsync-flist -q link-dups $dsynclist || true
 }
 
-function expire() {
-    log "Expiring old database dumps..."
-    cd $base/backup
-    $scriptsdir/expire_dumps -d . -p -f "dump_*"
-}
-
-function transitionsclean() {
-    log "Removing out of date transitions..."
-    cd $base
-    dak transitions -c -a
-}
-
 function mirrorpush() {
     log "Checking the public archive copy"
     cd ${mirrordir}/dists

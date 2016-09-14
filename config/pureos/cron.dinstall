@@ -251,7 +251,7 @@ stage $GO
 
 GO=(
     FUNC="mirror"
-    TIME="mirror hardlinks"
+    TIME="mirror"
     ARGS=""
     ERR=""
 )
@@ -272,32 +272,8 @@ GO=(
 stage $GO &
 
 GO=(
-    FUNC="expire"
-    TIME="expire_dumps"
-    ARGS=""
-    ERR=""
-)
-stage $GO &
-
-GO=(
-    FUNC="transitionsclean"
-    TIME="transitionsclean"
-    ARGS=""
-    ERR=""
-)
-stage $GO &
-
-GO=(
     FUNC="stats"
     TIME="stats"
-    ARGS=""
-    ERR="false"
-)
-stage $GO &
-
-GO=(
-    FUNC="develsourcelist"
-    TIME=""
     ARGS=""
     ERR="false"
 )

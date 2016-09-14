@@ -62,7 +62,7 @@ function reports() {
 function get_archiveroot() {
     local archivename="$1"
     local query="SELECT path FROM archive WHERE name='${archivename}'"
-    local archiveroot="$(psql -tAc "${query}")"
+    local archiveroot="$(psql -d projectb -tAc "${query}")"
     if [ -z "${archiveroot}" ]; then
         echo "get_archiveroot: couldn't get archiveroot for '${archivename}'" >&2
         return 1
