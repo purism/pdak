@@ -28,7 +28,7 @@ set -u
 set -E
 
 # import the general variable set.
-export SCRIPTVARS=/srv/dak/config/pureos/vars
+export SCRIPTVARS=/opt/dak/config/pureos/vars
 . $SCRIPTVARS
 
 ########################################################################

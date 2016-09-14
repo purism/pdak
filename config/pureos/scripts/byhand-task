@@ -9,7 +9,7 @@ if [ $# -lt 4 ]; then
         exit 1
 fi
 
-export SCRIPTVARS=/srv/dak/config/pureos/vars
+export SCRIPTVARS=/opt/dak/config/pureos/vars
 . $SCRIPTVARS
 
 INPUT="$1"      # Tarball to read, compressed with gzip

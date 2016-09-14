@@ -5,7 +5,7 @@ set -e
 set -o pipefail
 set -u
 
-export SCRIPTVARS=/srv/dak/config/pureos/vars
+export SCRIPTVARS=/opt/dak/config/pureos/vars
 . $SCRIPTVARS
 
 PROGRAM="cron.daily"
@@ -24,7 +24,7 @@ dak clean-queues
 dak queue-report -d new,byhand | mail -e -s "PureOS NEW and BYHAND on $(date +%D)" -a "From: PureOS Archive Masters <archive@puri.sm>" archive@puri.sm
 
 # and one on crufty packages
-dak cruft-report -R --mode bdo -s staging > $webdir/cruft-report-daily.txt
+dak cruft-report -R --mode bdo -s $staging_suite > $webdir/cruft-report-daily.txt
 
 ################################################################################
 echo "Finally, all is done, compressing logfile"

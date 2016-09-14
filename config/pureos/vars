@@ -2,7 +2,7 @@
 
 base=/srv/dak
 dakbase=/opt
-dakdir=$dakbase/dak
+masterdir=/opt/dak
 public=/srv/master.puri.sm
 bindir=$base/bin
 ftpdir=$base/ftp
@@ -11,9 +11,8 @@ webdir=$public/web
 indices=$ftpdir/indices
 archs=$(dak admin a list | tr '\n' ' ')
 
-scriptdir=$base/scripts
-masterdir=$base/dak
-configdir=$base/config/pureos
+scriptdir=$masterdir/scripts
+configdir=$masterdir/config/pureos
 scriptsdir=$configdir/scripts
 dbdir=$base/database
 lockdir=$base/lock
@@ -27,7 +26,7 @@ queuedir=$base/queue
 unchecked=/pub/ftp/incoming
 accepted=$queuedir/accepted
 mirrordir=$base/mirror
-incoming=$base/incoming
+incoming=/pub/ftp/incoming/
 newstage=$queuedir/newstage
 exportdir=$base/export
 exportpublic=$public/rsync/export

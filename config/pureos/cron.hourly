@@ -6,7 +6,7 @@ set -e
 set -o pipefail
 set -u
 
-export SCRIPTVARS=/srv/dak/config/pureos/vars
+export SCRIPTVARS=/opt/dak/config/pureos/vars
 . $SCRIPTVARS
 
 PROGRAM="Hourly"
