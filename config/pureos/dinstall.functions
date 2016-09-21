@@ -393,3 +393,13 @@ function changelogs() {
     cd ${exportpublic}/changelogs
     rsync -aHW --delete --delete-after --ignore-errors ${exportdir}/changelogs/. .
 }
+
+function laniakea_synchrotron() {
+    log "Synchronizing packages and data"
+    synchrotron autosync
+}
+
+function laniakea_spears() {
+    log "Migrating packages into the release suite"
+    /usr/local/lib/laniakea/spears migrate
+}

@@ -178,6 +178,14 @@ GO=(
 )
 stage $GO
 
+GO=(
+    FUNC="laniakea_synchrotron"
+    TIME="laniakea_synchrotron"
+    ARGS=""
+    ERR=""
+)
+stage $GO
+
 state "indices"
 
 GO=(
@@ -292,6 +300,15 @@ rm -f "${LOCK_BRITNEY}"
 GO=(
     FUNC="cleantransactions"
     TIME=""
+    ARGS=""
+    ERR=""
+)
+stage $GO
+
+
+GO=(
+    FUNC="laniakea_spears"
+    TIME="laniakea_spears"
     ARGS=""
     ERR=""
 )
