@@ -86,7 +86,7 @@ function mirror() {
     cd $public_ftpdir
     # sync the dists dir without hardlinks
     # (this is done to prevent archive issues while the indices are rebuilt)
-    rsync -aqH --delete ${archiveroot}/dists ./pureos/
+    rsync -aqH --delete --delete-after ${archiveroot}/dists ./pureos/
 }
 
 function release() {
