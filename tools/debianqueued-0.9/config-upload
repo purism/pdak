@@ -41,7 +41,7 @@ $incoming_delayed = "/srv/queued/UploadQueue/DELAYED/%d-day";
 
 # maximum delay directory, -1 for no delayed directory,
 # incoming_delayed and target_delayed need to exist.
-$max_delayed = -1;
+$max_delayed = 15;
 
 # files not to delete in $incoming (regexp)
 $keep_files = '(status|\.message|README)$';
@@ -94,7 +94,7 @@ $pidfile = "$queued_dir/run/pid";
 $upload_method = "ftp";
 
 # name of target host (ignored on copy method)
-$target = "ftp-master.debian.org";
+$target = "master.upload.debian.org";
 
 # login name on target host (for ssh, always 'ftp' for ftp, ignored for copy)
 $targetlogin = "ftp";

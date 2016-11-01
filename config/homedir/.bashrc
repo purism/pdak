@@ -28,7 +28,7 @@ xterm*|rxvt*)
 esac
 
 case "$HOSTNAME" in
-    franck|coccia)
+    franck|coccia|fasolo)
         export SCRIPTVARS=/srv/ftp-master.debian.org/dak/config/debian/vars
         ;;
     seger)
@@ -58,3 +58,5 @@ export PATH="~/bin/:${PATH}"
 alias base='cd ${base}'
 alias config='cd ${configdir}'
 alias ls='ls --color=auto'
+alias sshx='ssh -O exit'
+alias killsync='ssh -O exit upload-master'

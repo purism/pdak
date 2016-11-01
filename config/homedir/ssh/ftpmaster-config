@@ -1,3 +1,6 @@
+# Please edit the master copy in dak.git!
+#   path: config/homedir/ssh/ftpmaster-config
+
 Protocol 2
 ConnectTimeout 30
 ServerAliveInterval 30
@@ -13,7 +16,7 @@ Host bugs-sync
   IdentityFile /srv/ftp-master.debian.org/s3kr1t/id_debbugs-vt
 
 Host ddtp-sync
-  Hostname i18n.debian.net
+  Hostname ddtp2.debian.net
   User ddtp-dak
   IdentityFile /srv/ftp-master.debian.org/s3kr1t/ddtp-dak.rsa
 
@@ -42,7 +45,20 @@ Host dd-push-git
   User dak
   IdentityFile /srv/ftp-master.debian.org/scripts/s3kr1t/ssh/push_coccia_dak
 
+Host sync-release
+  Hostname coccia.debian.org
+  User dak
+  IdentityFile /srv/ftp-master.debian.org/scripts/s3kr1t/ssh/push_sync_release
+
 Host external-security
   Hostname seger.debian.org
   User dak
   IdentityFile /srv/ftp-master.debian.org/scripts/s3kr1t/ssh/push_external_files
+
+Host upload-master
+  Hostname usper.debian.org
+  User dak
+  IdentityFile /srv/ftp-master.debian.org/scripts/s3kr1t/ssh/sync_new_uploads
+  ControlMaster auto
+  ControlPath ~/.ssh-pipe_%n
+  ControlPersist yes
