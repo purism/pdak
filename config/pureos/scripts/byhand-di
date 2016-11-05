@@ -36,6 +36,9 @@ case $SUITE in
     landing|*-proposed-updates)
 	: # nothing to do
 	;;
+    green)
+	SUITE="landing"
+	;;
     *)
 	SUITE="${SUITE}-proposed-updates"
 	;;
