@@ -24,7 +24,7 @@ dak clean-queues
 dak queue-report -d new,byhand | mail -e -s "PureOS NEW and BYHAND on $(date +%D)" -a "From: PureOS Archive Masters <archive@puri.sm>" archive@puri.sm
 
 # and one on crufty packages
-dak cruft-report -R --mode bdo -s $staging_suite > $webdir/cruft-report-daily.txt
+#dak cruft-report -R --mode bdo -s $staging_suite > $webdir/cruft-report-daily.txt
 
 # update list of mails we send messages to
 gpg --no-default-keyring --keyring $base/keyrings/upload-keyring.gpg --list-keys | grep -i -o '[A-Z0-9._%+-]\+@[A-Z0-9.-]\+\.[A-Z]\{2,4\}' > $base/mail-whitelist.list
