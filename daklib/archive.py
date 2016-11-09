@@ -198,7 +198,8 @@ class ArchiveTransaction(object):
             session.flush()
             import_metadata_into_db(db_binary, session)
 
-            self._add_built_using(db_binary, binary.hashed_file.filename, control, suite, extra_archives=extra_source_archives)
+            # FIXME-PUREOS: Disabled temporarily, we can't support this easily when doing binary syncs
+            #self._add_built_using(db_binary, binary.hashed_file.filename, control, suite, extra_archives=extra_source_archives)
 
         if suite not in db_binary.suites:
             db_binary.suites.append(suite)
