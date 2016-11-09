@@ -28,6 +28,7 @@ dak queue-report -d new,byhand | mail -e -s "PureOS NEW and BYHAND on $(date +%D
 
 # update list of mails we send messages to
 gpg --no-default-keyring --keyring $base/keyrings/upload-keyring.gpg --list-keys | grep -i -o '[A-Z0-9._%+-]\+@[A-Z0-9.-]\+\.[A-Z]\{2,4\}' > $base/mail-whitelist.list
+echo "pureos-changes@lists.puri.sm" >> $base/mail-whitelist.list
 
 ################################################################################
 echo "Finally, all is done, compressing logfile"
