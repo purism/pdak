@@ -178,14 +178,6 @@ GO=(
 )
 stage $GO
 
-GO=(
-    FUNC="laniakea_synchrotron"
-    TIME="laniakea_synchrotron"
-    ARGS=""
-    ERR=""
-)
-stage $GO
-
 state "indices"
 
 GO=(
@@ -222,6 +214,14 @@ GO=(
 stage $GO
 
 state "dists/"
+
+GO=(
+    FUNC="dep11"
+    TIME="dep11"
+    ARGS=""
+    ERR=""
+)
+stage $GO
 
 # TODO: We don't want diffs at time
 #GO=(
@@ -309,6 +309,14 @@ stage $GO
 GO=(
     FUNC="laniakea_spears"
     TIME="laniakea_spears"
+    ARGS=""
+    ERR=""
+)
+stage $GO
+
+GO=(
+    FUNC="laniakea_synchrotron"
+    TIME="laniakea_synchrotron"
     ARGS=""
     ERR=""
 )
