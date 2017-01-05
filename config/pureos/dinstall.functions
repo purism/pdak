@@ -394,6 +394,34 @@ function changelogs() {
     rsync -aHW --delete --delete-after --ignore-errors ${exportdir}/changelogs/. .
 }
 
+# Syncing AppStream/DEP-11 data
+function dep11() {
+    log "Synchronizing AppStream metadata"
+    # First sync their newest data
+    local dep11dir="${scriptdir}/dep11"
+    mkdir -p ${dep11dir}
+    cd ${dep11dir}
+    rsync -rtq --safe-links --chmod=F644,D755 --delete --delete-after appstream.pureos.net:/does/not/matter . || true
+
+    # Lets check!
+    if ${scriptsdir}/dep11-basic-validate.py . ${dep11dir}/; then
+        # Yay, worked, lets copy around
+        for dir in ${extimportdists}; do
+            if [[ -d ${dir}/  ]]; then
+                for comp in main contrib non-free; do
+                    mkdir -p ${ftpdir}/dists/${dir}/${comp}/dep11
+                    cd ${dir}/${comp}
+                    rsync -rtq --delete --delete-after --exclude by-hash --exclude "./*.tmp" . ${ftpdir}/dists/${dir}/${comp}/dep11/.
+                    cd ${dep11dir}
+                done
+            fi
+        done
+    else
+        echo "ARRRR, bad guys, wrong files, ARRR"
+        echo "Arf, Arf, Arf, bad guys, wrong files, arf, arf, arf" | mail -a "X-Debian: DAK" -s "Don't you kids take anything. I'm watching you. I've got eye implants in the back of my head." -a "From: PureOS Masters <master@repo.pureos.net>" mak@debian.org
+    fi
+}
+
 function laniakea_synchrotron() {
     log "Synchronizing packages and data"
     synchrotron autosync
