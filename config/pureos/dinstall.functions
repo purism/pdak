@@ -401,7 +401,7 @@ function dep11() {
     local dep11dir="${scriptdir}/dep11"
     mkdir -p ${dep11dir}
     cd ${dep11dir}
-    rsync -rtq --safe-links --chmod=F644,D755 --delete --delete-after appstream.pureos.net:/does/not/matter . || true
+    rsync -rtq --safe-links --chmod=F644,D755 --delete --delete-after -e "ssh -p 3376" appstream.pureos.net:/srv/public/data/ . || true
 
     # Lets check!
     if ${scriptsdir}/dep11-basic-validate.py . ${dep11dir}/; then
