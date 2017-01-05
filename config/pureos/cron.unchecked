@@ -63,7 +63,7 @@ cleanup() {
 }
 
 function do_buildd () {
-    # TODO
+    echo "Buildd trigger: TODO"
 }
 
 function do_dists () {
@@ -96,10 +96,10 @@ exec >> "$LOGFILE" 2>&1
 # Finally deal with unchecked
 do_unchecked
 
-if [ ! -z "$changes" ]; then
-    #do_dists # FIXME: There are no queues yet, so we can't use this...
-    do_buildd
-fi
+#if [ ! -z "$changes" ]; then
+#    #do_dists # FIXME: There are no queues yet, so we can't use this...
+#    do_buildd
+#fi
 
 # cleanup incoming upload dir
 [ "$(ls -A /pub/ftp/incoming)" ] && find /pub/ftp/incoming/ -mtime +4 -exec rm {} \;
