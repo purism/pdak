@@ -45,7 +45,10 @@ schema_component = Schema({
 }, extra = True)
 
 def add_issue(msg):
-    print(msg)
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode('ascii', 'replace'))
 
 def test_custom_objects(lines):
     ret = True
