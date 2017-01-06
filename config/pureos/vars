@@ -3,7 +3,7 @@
 base=/srv/dak
 dakbase=/opt
 masterdir=/opt/dak
-public=/srv/master.puri.sm
+public=/srv/master.pureos.net
 bindir=$base/bin
 ftpdir=$base/ftp
 public_ftpdir=/srv/repo.puri.sm
@@ -29,7 +29,7 @@ mirrordir=$base/mirror
 incoming=/pub/ftp/incoming/
 newstage=$queuedir/newstage
 exportdir=$base/export
-exportpublic=$public/rsync/export
+exportpublic=$public/export
 buildqdir=$queuedir/build
 public_buildqdir=/srv/buildd.puri.sm/build-queues
 

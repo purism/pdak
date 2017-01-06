@@ -322,6 +322,14 @@ GO=(
 )
 stage $GO
 
+GO=(
+    FUNC="sync_master_web"
+    TIME="sync_master_web"
+    ARGS=""
+    ERR=""
+)
+stage $GO
+
 # we need to wait for the background processes before the end of dinstall
 wait
 

@@ -431,3 +431,7 @@ function laniakea_spears() {
     log "Migrating packages into the release suite"
     /usr/local/lib/laniakea/spears migrate
 }
+
+function sync_master_web() {
+    rsync -artqL --chmod=F644,D755 --delete --delete-after -e "ssh -p 3376" /srv/master.pureos.net/ master.pureos.net:/srv/master.pureos.net/ | true
+}
