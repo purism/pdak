@@ -433,5 +433,8 @@ function laniakea_spears() {
 }
 
 function sync_master_web() {
-    rsync -artqL --chmod=F644,D755 --delete --delete-after -e "ssh -p 3376" /srv/master.pureos.net/ master.pureos.net:/srv/master.pureos.net/ | true
+    rsync -rtq --delete --delete-after /srv/dak/export/ /srv/master.pureos.net/export/.
+    rsync -rtq --delete --delete-after /srv/laniakea/spears/landing-to-green/output/target/ /srv/master.pureos.net/britney/.
+
+    rsync -artq --chmod=F644,D755 --delete --delete-after --safe-links -e "ssh -p 3376" /srv/master.pureos.net/ master.pureos.net:/srv/master.pureos.net/ | true
 }
