@@ -52,27 +52,6 @@ function qa1() {
     ssh -n -2 -i ~dak/.ssh/push_merkel_qa  -o BatchMode=yes -o SetupTimeOut=90 -o ConnectTimeout=90 qa@qa.debian.org sleep 1
 }
 
-function mirrorlists() {
-    local mldir="${scriptdir}/mirrorlist"
-    local masterlist=${mldir}/Mirrors.masterlist
-
-    cd ${mldir}
-
-    [[ -f ${HOME}/.cvspass ]] || touch ${HOME}/.cvspass
-
-    grep -q "anonscm.debian.org:/cvs/webwml" ~/.cvspass || \
-	echo ":pserver:anonymous@anonscm.debian.org:/cvs/webwml A" >> ${HOME}/.cvspass
-
-    cvs update
-
-    if [[ ! -f ${ftpdir}/README.mirrors.html ]] || [[ ${masterlist} -nt ${ftpdir}/README.mirrors.html ]]; then
-	rm -f ${ftpdir}/README.mirrors.{html,txt}
-	${mldir}/mirror_list.pl -m ${masterlist} -t html > ${ftpdir}/README.mirrors.html
-	${mldir}/mirror_list.pl -m ${masterlist} -t text > ${ftpdir}/README.mirrors.txt
-	log Updated archive version of mirrors file
-    fi
-}
-
 function mailingliststxt() {
     cd ${ftpdir}/doc
 
@@ -264,7 +243,7 @@ function mklslar() {
 
         log "Creating recursive directory listing ... "
         rm -f ${FILENAME}.gz
-        TZ=UTC ls -lR | gzip -9c --rsyncable > ${FILENAME}.gz
+        TZ=UTC ls -lR | gzip -9c --rsyncable --no-name > ${FILENAME}.gz
     done
 }
 
@@ -283,8 +262,8 @@ function mkmaintainers() {
         cd "${indices}"
 
         dak make-maintainers -a "${archive}" ${scriptdir}/masterfiles/pseudo-packages.maintainers
-        gzip -9v --rsyncable <Maintainers >Maintainers.gz
-        gzip -9v --rsyncable <Uploaders >Uploaders.gz
+        gzip -9v --rsyncable  --no-name <Maintainers >Maintainers.gz
+        gzip -9v --rsyncable  --no-name <Uploaders >Uploaders.gz
     done
 }
 
@@ -295,7 +274,7 @@ function copyoverrides() {
         shopt -s nullglob
         for ofile in ${overridedir}/override.{squeeze,wheezy,jessie,stretch,sid}.{,extra.}{main,contrib,non-free}*; do
             bname=${ofile##*/}
-            gzip -9cv --rsyncable ${ofile} > ${indices}/${bname}.gz
+            gzip -9cv --rsyncable  --no-name ${ofile} > ${indices}/${bname}.gz
             chmod g+w ${indices}/${bname}.gz
         done
     )
@@ -587,6 +566,7 @@ function mirrorpush() {
             esac
             mkdir -p ${webdir}/${pname}/project/trace/
             ln -sf ${mirrordir}/${archive}/project/trace/master ${webdir}/${pname}/project/trace/master
+            ln -sf ${mirrordir}/${archive}/project/trace/master ${webdir}/${pname}/project/trace/ftp-master.debian.org
 
             date -u > ${webdir}/${fname}
             echo "Using dak v1" >> ${webdir}/${fname}
