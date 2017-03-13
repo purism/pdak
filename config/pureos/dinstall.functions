@@ -87,6 +87,7 @@ function mirror() {
     # sync the dists dir without hardlinks
     # (this is done to prevent archive issues while the indices are rebuilt)
     rsync -aqH --delete --delete-after ${archiveroot}/dists ./pureos/
+    rsync -aqH --delete --delete-after ${archiveroot}/zzz-dists ./pureos/
 }
 
 function release() {
