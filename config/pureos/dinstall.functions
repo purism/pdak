@@ -433,6 +433,11 @@ function laniakea_spears() {
     /usr/local/lib/laniakea/spears migrate
 }
 
+function laniakea_eggshell() {
+    log "Creating default metapackage reports"
+    /usr/local/lib/laniakea/eggshell run
+}
+
 function sync_master_web() {
     rsync -artq --chmod=F644,D755 --delete --delete-after --safe-links -e "ssh -p 3376" /srv/dak/export/ master.pureos.net:/srv/master.pureos.net/export | true
     rsync -artqL --chmod=F644,D755 --delete --delete-after --exclude export --safe-links -e "ssh -p 3376" /srv/master.pureos.net/ master.pureos.net:/srv/master.pureos.net/ | true
