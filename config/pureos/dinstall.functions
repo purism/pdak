@@ -390,9 +390,6 @@ EOF
 function changelogs() {
     log "Extracting changelogs"
     dak make-changelog -e -a repo
-    mkdir -p ${exportpublic}/changelogs
-    cd ${exportpublic}/changelogs
-    rsync -aHW --delete --delete-after --ignore-errors ${exportdir}/changelogs/. .
 }
 
 # Syncing AppStream/DEP-11 data

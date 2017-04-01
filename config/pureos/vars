@@ -29,7 +29,6 @@ mirrordir=$base/mirror
 incoming=/pub/ftp/incoming/
 newstage=$queuedir/newstage
 exportdir=$base/export
-exportpublic=$public/export
 buildqdir=$queuedir/build
 public_buildqdir=/srv/buildd.puri.sm/build-queues
 
