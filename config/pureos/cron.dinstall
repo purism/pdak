@@ -330,6 +330,14 @@ GO=(
 stage $GO
 
 GO=(
+    FUNC="laniakea_debcheck"
+    TIME="laniakea_debcheck"
+    ARGS=""
+    ERR=""
+)
+stage $GO
+
+GO=(
     FUNC="sync_master_web"
     TIME="sync_master_web"
     ARGS=""
