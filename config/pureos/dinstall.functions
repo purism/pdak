@@ -51,7 +51,11 @@ function dominate() {
 
 function fingerprints() {
     log "Updating fingerprints"
+
+    # People
     dak import-keyring -U '%s' /srv/dak/keyrings/upload-keyring.gpg
+    # Robots
+    dak import-keyring -U '%s' /srv/dak/keyrings/workers-keyring.gpg
 
     # TODO: We could send the result to an email adress...
 }
