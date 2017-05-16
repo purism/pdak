@@ -102,7 +102,7 @@ do_unchecked
 #fi
 
 # cleanup incoming upload dir
-[ "$(ls -A /pub/ftp/incoming)" ] && find /pub/ftp/incoming/ -mtime +4 -exec rm {} \;
+[ "$(ls -A /pub/incoming)" ] && find /pub/incoming/ -mtime +4 -exec rm {} \;
 
 ################################################################################
 echo "Completed. Compressing logfile."

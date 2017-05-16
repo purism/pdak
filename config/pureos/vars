@@ -23,10 +23,10 @@ logdir=$base/log/cron
 dbbackupdir=$base/backup/db_full
 
 queuedir=$base/queue
-unchecked=/pub/ftp/incoming
+unchecked=/pub/incoming
 accepted=$queuedir/accepted
 mirrordir=$base/mirror
-incoming=/pub/ftp/incoming/
+incoming=/pub/incoming/
 newstage=$queuedir/newstage
 exportdir=$base/export
 buildqdir=$queuedir/build
