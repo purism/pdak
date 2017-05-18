@@ -1,8 +1,7 @@
 # locations used by many scripts
 
 base=/srv/dak
-dakbase=/opt
-masterdir=/opt/dak
+masterdir=/srv/dak/dak
 public=/srv/master.pureos.net
 bindir=$base/bin
 ftpdir=$base/ftp

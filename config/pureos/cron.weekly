@@ -9,7 +9,7 @@ set -u
 # substitutions and subshells and whatnot, but for us the functions is
 # the important part here)
 set -E
-export SCRIPTVARS=/opt/dak/config/pureos/vars
+export SCRIPTVARS=/srv/dak/dak/config/pureos/vars
 . $SCRIPTVARS
 
 # Start logging

@@ -26,7 +26,7 @@ set -e
 set -u
 
 # Load up some standard variables
-export SCRIPTVARS=/opt/dak/config/pureos/vars
+export SCRIPTVARS=/srv/dak/dak/config/pureos/vars
 . $SCRIPTVARS
 
 IMPORTSUITE=${1:-"$devel_suite"}
