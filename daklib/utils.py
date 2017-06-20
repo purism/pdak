@@ -143,7 +143,7 @@ def our_raw_input(prompt=""):
 
 ################################################################################
 
-def extract_component_from_section(section, session=None):
+def extract_component_from_section(section):
     component = ""
 
     if section.find('/') != -1:
@@ -504,7 +504,7 @@ def send_mail (message, filename="", whitelists=None):
 
 ################################################################################
 
-def poolify (source, component=None):
+def poolify (source):
     if source[:3] == "lib":
         return source[:4] + '/' + source + '/'
     else:
@@ -807,6 +807,9 @@ def gpg_get_key_addresses(fingerprint):
         for l in output.split('\n'):
             parts = l.split(':')
             if parts[0] not in ("uid", "pub"):
+                continue
+            if parts[1] in ("i", "d", "r"):
+                # Skip uid that is invalid, disabled or revoked
                 continue
             try:
                 uid = parts[9]

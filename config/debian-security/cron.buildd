@@ -8,8 +8,7 @@ set -u
 
 export SCRIPTVARS=/srv/security-master.debian.org/dak/config/debian-security/vars
 . $SCRIPTVARS
-SSH_SOCKET=~/.ssh/buildd.debian.org.socket
-DISTS="oldstable stable stable-kfreebsd testing"
+DISTS="oldoldstable oldstable oldstable-kfreebsd stable testing"
 
 if [ -e $ftpdir/Archive_Maintenance_In_Progress ]; then
     exit 0
@@ -32,35 +31,28 @@ for dist in $DISTS; do
 done
 
 if [ ! -z "${dists}" ]; then
-    # setup ssh master process
-    ssh wbadm@buildd -S $SSH_SOCKET -MN 2> /dev/null &
-    SSH_PID=$!
-    while [ ! -S $SSH_SOCKET ]; do
-        sleep 1
-    done
-    trap 'kill -TERM $SSH_PID' 0
     for d in ${dists}; do
         case ${d} in
             oldoldstable)
-                send=squeeze
-                ;;
-            oldstable)
                 send=wheezy
                 ;;
-            stable)
+            oldstable)
                 send=jessie
                 ;;
-            stable-kfreebsd)
+            oldstable-kfreebsd)
                 send=jessie-kfreebsd
                 ;;
-            testing)
+            stable)
                 send=stretch
+                ;;
+            testing)
+                send=buster
                 ;;
             *)
                 send=unknown
                 ;;
         esac
 
-        ssh wbadm@buildd -S $SSH_SOCKET trigger.security $send
+        ssh wbadm@buildd trigger.security $send
     done
 fi

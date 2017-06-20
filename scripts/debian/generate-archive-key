@@ -1,0 +1,220 @@
+#! /bin/bash
+#
+# usage: generate-archive-key <configuration> <output-directory>
+#
+# generate a new archive key
+#
+# Required packages:
+#     gnupg libgfshare-bin pinentry-tty
+
+set -e
+set -u
+set -o pipefail
+
+conf=${1:-""}
+output=${2:-""}
+
+err=0
+for package in gnupg libgfshare-bin pinentry-tty; do
+    if ! dpkg -l ${package} >/dev/null 2>&1; then
+        echo "Missing package ${package}"
+        err=1
+    fi
+done
+if [[ ${err} -ne 0 ]]; then
+    exit 8
+fi
+
+# designated revokers
+revokers=(
+    80E976F14A508A48E9CA3FE9BC372252CA1CF964 # Ansgar Burchardt <ansgar@debian.org>
+    FBFABDB541B5DC955BD9BA6EDB16CF5BB12525C4 # Joerg Jaspert <joerg@debian.org>
+    309911BEA966D0613053045711B4E5FF15B0FD82 # Mark Hymers <mhy@debian.org>
+)
+
+# holders of revocation shares and number of required shares
+revocation_holders=(
+)
+revocation_shares=0
+
+# holders of backup shares and number of required shares
+backup_holders=(
+    ${revokers[@]}
+    AB41C1C68AFD668CA045EBF8673A03E4C1DB921F # Gunnar Eyal Wolf Iszaevich <gwolf@debian.org>
+    7B27A3F1A6E18CD9588B4AE8310180050905E40C # Julien Cristau <jcristau@debian.org>
+)
+backup_shares=3
+
+keyring=/usr/share/keyrings/debian-keyring.gpg
+if [[ -f /srv/keyring.debian.org/keyrings/debian-keyring.gpg ]]; then
+    keyring=/srv/keyring.debian.org/keyrings/debian-keyring.gpg
+fi
+
+if [[ -z ${conf} ]] || [[ ! -e ${conf} ]]; then
+    echo "Configuration file '${conf}' does not exist" >&2
+    exit 1
+fi
+
+if [[ -z ${output} ]] || [[ -e ${output} ]]; then
+    echo "No output directory given - or given directory ${output} exists already" >&2
+    exit 2
+fi
+
+. ${conf}
+
+for option in \
+    revokers \
+    revocation_shares \
+    backup_shares \
+    name_real name_email \
+    ; do
+    if [[ ! -v ${option} ]]; then
+        echo "Option '${option}' is not set" >&2
+        exit 3
+    fi
+done
+
+umask 077
+
+show-file() {
+    echo "/---[ ${1} ]"
+    cat -- "${1}"
+    echo "\---[ ${1} ]"
+}
+
+split-into-encrypted-shares() {
+    local input="${1}"
+    local output="${2}"
+    local -n holders="${3}"
+    local shares="${4}"
+    local description="${5:-}"
+
+    gfsplit -n ${shares} -m ${#holders[@]} ${input}
+
+    local i=0
+    for share in ${input}.*; do
+        local holder=${holders[$i]}
+        i=$((i + 1))
+        {
+            echo "${description}"
+            echo "Share name: ${share}"
+            echo
+            echo "To recombine:"
+            echo "  - Store this share as ${share}.asc"
+            echo "  - Run: apt install libgfshare-bin"
+            echo "  - Run:"
+            echo "      for f in ${input}.???.asc; do gpg < \$f > \${f%.asc}; done"
+            echo "      gfcombine ${input}.???"
+            echo
+            gpg --armor --store < ${share}
+        } |
+            gpg --armor --encrypt --trust-model=always --keyring ${keyring} -r ${holder} > ${output}.${holder}
+    done
+}
+
+if [[ ${#revocation_holders[@]} -lt ${revocation_shares} ]]; then
+    echo "There are fewer revocation share holders than the number of required shares" >&2
+    exit 4
+fi
+
+if [[ ${#backup_holders[@]} -lt ${backup_shares} ]]; then
+    echo "There are fewer backup share holders than the number of required shares" >&2
+    exit 5
+fi
+
+gpghome=$(mktemp -d)
+export GNUPGHOME="${gpghome}"
+trap 'rm -rf -- "${gpghome:?}"' EXIT
+
+if [[ $(stat --file-system -c "%T" -- "${gpghome}") != tmpfs ]]; then
+    echo "This script refuses to work with temporary files not on a tmpfs!" >&2
+    exit 6
+fi
+
+pushd "${gpghome}"
+
+cat > gpg.conf <<EOF
+personal-digest-preferences SHA512
+cert-digest-algo SHA512
+default-preference-list SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 ZLIB BZIP2 ZIP Uncompressed
+EOF
+
+cat > gpg-agent.conf <<EOF
+pinentry-program /usr/bin/pinentry-tty
+EOF
+
+cat > generate-key.conf <<EOF
+Key-Type: RSA
+Key-Length: 4096
+Key-Usage: sign
+Subkey-Type: RSA
+Subkey-Length: 4096
+Subkey-Usage: sign
+Name-Real: ${name_real:?}
+Name-Email: ${name_email:?}
+Name-Comment: ${name_comment:-}
+Expire-Date: 8y
+EOF
+
+show-file generate-key.conf
+
+# The exported secret key shares must be without a passphrase.
+# So we only set the passphrase at the end.
+gpg --batch --pinentry-mode loopback --passphrase "" --full-generate-key generate-key.conf
+key=$(gpg --with-colon --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit 0; }')
+key_uid=$(gpg --with-colon --list-secret-keys | awk -F: '$1 == "uid" { print $10; exit 0; }')
+if [[ ${#key} -ne 40 ]]; then
+   echo "Unexpected length of key id: ${#key} (expected: 40)" >&2
+   exit 7
+fi
+
+echo "Secret key is ${key} (${key_uid})"
+
+if [[ ${#revokers[@]} -gt 0 ]]; then
+    {
+        for revoker in ${revokers[@]}; do
+            echo addrevoker
+            echo ${revoker}
+            echo y
+        done
+        echo save
+        echo quit
+    } > edit-key
+    show-file edit-key
+    gpg --command-file=edit-key --status-fd=2 --batch --keyring ${keyring} --edit-key ${key}
+fi
+
+cp openpgp-revocs.d/${key}.rev revoke-${key}
+if [[ ${#revocation_holders[@]} -gt 0 ]]; then
+    description="This is a share of the REVOCATION CERTIFICATE for
+the key: ${key}
+    uid: ${key_uid}
+"
+    split-into-encrypted-shares revoke-${key} revoke-${key}-share revocation_holders ${revocation_shares} "${description}"
+fi
+
+if [[ ${#backup_holders[@]} -gt 0 ]]; then
+    gpg --export-secret-key ${key} > backup-${key}
+    description="This is a share of the PRIVATE KEY for
+the key: ${key}
+    uid: ${key_uid}
+"
+    split-into-encrypted-shares backup-${key} backup-${key}-share backup_holders ${backup_shares} "${description}"
+    rm -f -- backup-${key} backup-${key}.???
+fi
+
+gpg --change-passphrase ${key}
+gpg -a --export ${key} > public-${key}.asc
+gpg -a --export-secret-key ${key} > private-key-${key}.asc
+gpg -a --export-secret-subkeys ${key} > private-subkey-${key}.asc
+
+popd
+
+mkdir -- ${output}
+cp -t ${output} -- ${gpghome}/public-${key}.asc ${gpghome}/private-key-${key}.asc ${gpghome}/private-subkey-${key}.asc ${gpghome}/revoke-${key}
+if [[ ${#revocation_holders[@]} -gt 0 ]]; then
+    cp -t ${output} -- ${gpghome}/revoke-${key}-share.*
+fi
+if [[ ${#backup_holders[@]} -gt 0 ]]; then
+    cp -t ${output} -- ${gpghome}/backup-${key}-share.*
+fi

@@ -63,6 +63,7 @@ Write out ed-style diffs to Packages/Source lists
   -d                    name for the hardlink farm for status
   -m                    how many diffs to generate
   -n                    take no action
+  -v                    be verbose and list each file as we work on it
     """
     sys.exit(exit_code)
 
@@ -359,6 +360,7 @@ def main():
                   ('d', "tmpdir", "Generate-Index-Diffs::Options::TempDir", "hasArg"),
                   ('m', "maxdiffs", "Generate-Index-Diffs::Options::MaxDiffs", "hasArg"),
                   ('n', "n-act", "Generate-Index-Diffs::Options::NoAct"),
+                  ('v', "verbose", "Generate-Index-Diffs::Options::Verbose"),
                 ]
     suites = apt_pkg.parse_commandline(Cnf,Arguments,sys.argv)
     Options = Cnf.subtree("Generate-Index-Diffs::Options")
@@ -378,7 +380,8 @@ def main():
     if not suites:
         query = session.query(Suite.suite_name)
         if Options.get('Archive'):
-            query = query.join(Suite.archive).filter(Archive.archive_name == Options['Archive'])
+            archives = [a.strip() for a in Options['Archive'].split(',')]
+            query = query.join(Suite.archive).filter(Archive.archive_name.in_(archives))
         suites = [ s.suite_name for s in query ]
 
     for suitename in suites:
@@ -439,10 +442,12 @@ def main():
 
                 # Process Contents
                 file = "%s/%s/Contents-%s" % (tree, component, architecture)
+                if Options.has_key("Verbose"): print(file)
                 storename = "%s/%s_%s_contents_%s" % (Options["TempDir"], suite, component, architecture)
                 genchanges(Options, file + ".diff", storename, file, maxcontents)
 
                 file = "%s/%s/%s/%s" % (tree, component, longarch, packages)
+                if Options.has_key("Verbose"): print(file)
                 storename = "%s/%s_%s_%s" % (Options["TempDir"], suite, component, architecture)
                 genchanges(Options, file + ".diff", storename, file, maxsuite)
 

@@ -379,15 +379,30 @@ class Changes(object):
         byhand = []
 
         for f in self.files.itervalues():
+            if f.section == 'byhand' or f.section[:4] == 'raw-':
+                byhand.append(f)
+                continue
             if re_file_dsc.match(f.filename) or re_file_source.match(f.filename) or re_file_binary.match(f.filename):
                 continue
             if re_file_buildinfo.match(f.filename):
                 continue
-            if f.section != 'byhand' and f.section[:4] != 'raw-':
-                raise InvalidChangesException("{0}: {1} looks like a byhand package, but is in section {2}".format(self.filename, f.filename, f.section))
-            byhand.append(f)
+
+            raise InvalidChangesException("{0}: {1} looks like a byhand package, but is in section {2}".format(self.filename, f.filename, f.section))
 
         return byhand
+
+    @property
+    def buildinfo_files(self):
+        """included buildinfo files
+        @type: list of L{daklib.upload.HashedFile}
+        """
+        buildinfo = []
+
+        for f in self.files.itervalues():
+            if re_file_buildinfo.match(f.filename):
+                buildinfo.append(f)
+
+        return buildinfo
 
     @property
     def binary_names(self):

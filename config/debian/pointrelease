@@ -45,10 +45,15 @@ configdir=${configdir:-"/srv/ftp-master.debian.org/dak/config/debian"}
 # it is expected to have the same value)
 export SCRIPTVARS=${configdir}/vars
 . "${SCRIPTVARS}"
+. "${configdir}/common"
 . "${configdir}/dinstall.functions"
 umask 022
 
 # Get rid of tempfiles at the end
+cleanup() {
+    echo "You have to clean up your mess on your own. Sorry." >&2
+    exit 1
+}
 trap cleanup EXIT TERM HUP INT QUIT
 
 function usage() {
@@ -57,14 +62,21 @@ function usage() {
     echo "Default for suite is jessie, version defaults to last plus one"
 }
 
+confirm() {
+    local y=N
+    while [ "${y}" != "y" ]; do
+        read -p "Continue [y/N]?" y
+    done
+}
+
 # Arguments, we like
 while getopts ":hs:v:" OPTION; do
     case ${OPTION} in
         s) # suite
             suitename="${OPTARG}"
             ;;
-        x) # version
-            version="${OPTARG}"
+        v) # version
+            newrev="${OPTARG}"
             ;;
         h) # help
             usage
@@ -81,7 +93,7 @@ done
 suitename=${suitename:-"jessie"}
 suite=$(psql -qAtc "SELECT suite_name FROM suite WHERE codename='${suitename}'")
 oldrev=$(psql -qAtc "SELECT version FROM suite WHERE codename='${suitename}'")
-version=${version:-$(( ${oldrev##*.} + 1 ))}
+newrev=${newrev:-$(( ${oldrev##*.} + 1 ))}
 PROGRAM="pointrelease_${suitename}"
 
 # Set some variables
@@ -90,6 +102,8 @@ case "${suite}" in
   oldstable) pusuite=oldstable-proposed-updates ;;
   *)         pusuite=INVALID ;;
 esac
+
+wget="wget --ca-directory=/etc/ssl/ca-debian"
 
 # set DEBUG if you want to see a little more logs
 DEBUG=${DEBUG:-0}
@@ -113,6 +127,7 @@ dak control-suite -l ${suite} > ${suite}.list
 
 echo "Is there anything to skip in this release? If so, please enter source package names, whitespace seperated, if not just hit enter"
 read -e -p "Source packages: " skiplist
+confirm
 if [[ -n ${skiplist} ]]; then
   mv ${pusuite}.list ${pusuite}.list.ori
   grep -vFf <(dak ls -f heidi -S -s ${pusuite} ${skip}) ${pusuite}.list.ori > ${pusuite}.list
@@ -125,10 +140,12 @@ chmod 0644 ${tmpfile}
 mv ${tmpfile} ${ftpdir}/dists/${suite}/ChangeLog
 if [[ -n ${skiplist} ]]; then
     echo "Please edit to remove the changelogs for the skipped packages"
+    confirm
     $EDITOR ${ftpdir}/dists/${suite}/ChangeLog
     rm -f ${ftpdir}/dists/${suite}/ChangeLog~
 fi
 
+log "Merging ${pusuite} into ${suite}"
 dak control-suite --add ${suite} < ${pusuite}.list
 dak control-suite --remove ${pusuite} < ${pusuite}.list
 
@@ -139,23 +156,33 @@ cd ${ftpdir}/dists/${pusuite}
 mv -t "${pumorguedir}" -n -- *.changes
 if [[ -n ${skiplist} ]]; then
     for pack in ${skiplist}; do
-        mv -t "${ftpdir}/dists/${pusuite}" ${pumorguedir}/${pack}*.changes
+        mv -t "${ftpdir}/dists/${pusuite}" ${pumorguedir}/${pack}_*.changes
     done
 fi
 
 log "Checking for r0 additions and propups"
 cd ~/${suitename}_${newrev}
-if [[ -f /srv/release.debian.org/www/${suitename}/${newrev%%.*}/${newrev}/${suitename}-r0-additions.cs ]]; then
-    cp /srv/release.debian.org/www/${suitename}/${newrev%%.*}/${newrev}/${suitename}-r0-additions.cs .
-    dak control-suite --add ${suitename}-r0 < ${suitename}-r0-additions.cs
+release_base=https://release.debian.org/${pusuite}/${newrev%%.*}/${newrev}
+
+f=${suitename}-r0-additions.cs
+if ${wget} -O "${f}" "${release_base}/${f}"; then
+    echo "Please check ${f}"
+    confirm
+    dak control-suite --add ${suitename}-r0 < ${f}
 fi
-if [[ -f /srv/release.debian.org/www/${suitename}/${newrev%%.*}/${newrev}/propups.unstable ]]; then
-    cp /srv/release.debian.org/www/${suitename}/${newrev%%.*}/${newrev}/propups.unstable .
-    dak control-suite --force --add unstable <propups.unstable
+
+f=propups.unstable
+if ${wget} -O "${f}" "${release_base}/${f}"; then
+    echo "Please check ${f}"
+    confirm
+    dak control-suite --force --add unstable < ${f}
 fi
-if [[ -f /srv/release.debian.org/www/${suitename}/${newrev%%.*}/${newrev}/propups.testing ]]; then
-    cp /srv/release.debian.org/www/${suitename}/${newrev%%.*}/${newrev}/propups.testing .
-    dak control-suite --force --add testing <propups.testing
+
+f=propups.testing
+if ${wget} -O "${f}" "${release_base}/${f}"; then
+    echo "Please check ${f}"
+    confirm
+    dak control-suite --force --add testing < ${f}
 fi
 
 log "RM time"
@@ -167,7 +194,7 @@ hadrms=0
 while :; do
     read -e -p "RM command: " -i "dak rm -s ${suite} -R -p -d ### -m '###' ###" dakrmcmd
     if [[ -n ${dakrmcmd} ]]; then
-        ${dakrmcmd}
+        eval "${dakrmcmd}"
         hadrms=1
         continue
     else
@@ -177,6 +204,7 @@ done
 
 if [[ ${hadrms} -ne 0 ]]; then
     echo "You did some removals, please copy their entries into the changelog"
+    confirm
     $EDITOR ${ftpdir}/dists/${suite}/ChangeLog ${webdir}/removals.txt
 fi
 
@@ -184,6 +212,7 @@ log "Checking for d-i updates"
 echo "Are there d-i updates? Empty version string, if not."
 echo "Seperate old version to move to morgue by space."
 read -e -p "d-i updates: " diver dioldver
+confirm
 
 if [[ -n ${diver} ]]; then
     log "Installing new d-i version ${diver}"
@@ -234,7 +263,7 @@ sed -e "s/Debian ${oldrev}/Debian ${newrev}/g; /Debian ${newrev}/ s/released .*\
 
 echo "Now check if it looks good"
 for f in README README.html dists/README dists/${suite}/ChangeLog; do
-  diff -u ${mirrordir}/ftp-master/${f} ${ftpdir}/${f}
+  diff -u ${mirrordir}/ftp-master/${f} ${ftpdir}/${f} || :
 done
 read -e -p "Does the diff look ok? Enter anything if not, empty if yes" diffcheck
 if [[ -n ${diffcheck} ]]; then
@@ -282,34 +311,35 @@ fi
 
 log "Time to run gps/contents, RMs can check if all looks ok"
 dak generate-packages-sources2 --force -s ${suite},${pusuite}
+${scriptsdir}/sync-release ${suitename} &
 log "Contents"
 dak contents generate -f -s ${suite} -a ftp-master
+wait
+${scriptsdir}/sync-release ${suitename}
 
 if [[ ${suitename} == wheezy ]]; then
   ${scriptsdir}/generate-i18n-Index "${ftpdir}/dists/${suite}"
 fi
 
+echo "Generate release files?"
+confirm
 dak generate-releases -f -s ${suite} ${pusuite}
+${scriptsdir}/sync-release ${suitename}
 
 log "Release file generated, waiting for RMs checking and (hopefully) signing"
 
 # Remove InRelease: Release can be signed by both ftpmaster & stable release keys
-rm ${ftpdir}/dists/${suite}/InRelease
-cd ${ftpdir}/dists/${suite}
-releasefile=/srv/release.debian.org/www/${suitename}/${newrev%%.*}/${newrev}/Release-${newrev}.gpg
-while :; do
-    if [[ -f ${releasefile} ]]; then
-        cat ${releasefile} >> Release.gpg
-        gpg --no-default-keyring --keyring /usr/share/keyrings/debian-archive-keyring.gpg --trust-model=always --verify Release.gpg Release
-        break
-    else
-        echo -n "."
-        sleep 10
-        continue
-    fi
+rm ${ftpdir}/dists/${suite}/InRelease ${ftpdir}/zzz-dists/${suite}/InRelease
+releasefile=Release-${newrev}.gpg
+cd ~/${suitename}_${newrev}
+while ! ${wget} -O "${releasefile}" "${release_base}/${releasefile}"; do
+    sleep 10
 done
+cd ${ftpdir}/dists/${suite}
+cat ~/${suitename}_${newrev}/${releasefile} >> Release.gpg
+gpg --no-default-keyring --keyring /usr/share/keyrings/debian-archive-keyring.gpg --trust-model=always --verify Release.gpg Release
 echo "Done. Is a mirrorpush needed? Or just one to the cd-builder?"
-read -e -p "Mirrorpush? no/cd/yes" -i "cd" mirrorpush
+read -e -p "Mirrorpush? no/cd/yes " -i "cd" mirrorpush
 
 case ${mirrorpush} in
     no)

@@ -38,6 +38,7 @@ import sys
 import traceback
 import apt_pkg
 from sqlalchemy.orm.exc import NoResultFound
+import sqlalchemy.sql as sql
 
 from daklib.dbconn import *
 from daklib import daklog
@@ -49,6 +50,7 @@ from daklib.urgencylog import UrgencyLog
 from daklib.packagelist import PackageList
 
 import daklib.announce
+import daklib.upload
 import daklib.utils
 
 # Globals
@@ -221,6 +223,11 @@ def comment_accept(upload, srcqueue, comments, transaction):
         dst = os.path.join(upload.target_suite.path, upload.changes.changesname)
         fs.copy(src, dst, mode=upload.target_suite.archive.mode)
 
+    # List of files in the queue directory
+    queue_files = [changesname]
+    chg = daklib.upload.Changes(upload.policy_queue.path, changesname, keyrings=[], require_signature=False)
+    queue_files.extend(f.filename for f in chg.buildinfo_files)
+
     # Copy upload to Process-Policy::CopyDir
     # Used on security.d.o to sync accepted packages to ftp-master, but this
     # should eventually be replaced by something else.
@@ -239,10 +246,13 @@ def comment_accept(upload, srcqueue, comments, transaction):
             if not os.path.exists(dst):
                 fs.copy(f.fullpath, dst, mode=mode)
 
-        src = os.path.join(upload.policy_queue.path, upload.changes.changesname)
-        dst = os.path.join(copydir, upload.changes.changesname)
-        if not os.path.exists(dst):
-            fs.copy(src, dst, mode=mode)
+        for fn in queue_files:
+            src = os.path.join(upload.policy_queue.path, fn)
+            dst = os.path.join(copydir, fn)
+            # We check for `src` to exist as old uploads in policy queues
+            # might still miss the `.buildinfo` files.
+            if os.path.exists(src) and not os.path.exists(dst):
+                fs.copy(src, dst, mode=mode)
 
     if upload.source is not None and not Options['No-Action']:
         urgency = upload.changes.urgency
@@ -259,12 +269,14 @@ def comment_accept(upload, srcqueue, comments, transaction):
 
     # TODO: code duplication. Similar code is in process-upload.
     # Move .changes to done
-    src = os.path.join(upload.policy_queue.path, upload.changes.changesname)
     now = datetime.datetime.now()
     donedir = os.path.join(cnf['Dir::Done'], now.strftime('%Y/%m/%d'))
-    dst = os.path.join(donedir, upload.changes.changesname)
-    dst = utils.find_next_free(dst)
-    fs.copy(src, dst, mode=0o644)
+    for fn in queue_files:
+        src = os.path.join(upload.policy_queue.path, fn)
+        if os.path.exists(src):
+            dst = os.path.join(donedir, fn)
+            dst = utils.find_next_free(dst)
+            fs.copy(src, dst, mode=0o644)
 
     remove_upload(upload, transaction)
 
@@ -295,6 +307,11 @@ def real_comment_reject(upload, srcqueue, comments, transaction, notify=True, ma
                   .filter(PoolFile.file_id.in_([ f.file_id for f in poolfiles ])) ]
     for byhand in upload.byhand:
         path = os.path.join(queuedir, byhand.filename)
+        if os.path.exists(path):
+            files.append(path)
+    chg = daklib.upload.Changes(queuedir, changesname, keyrings=[], require_signature=False)
+    for f in chg.buildinfo_files:
+        path = os.path.join(queuedir, f.filename)
         if os.path.exists(path):
             files.append(path)
     files.append(os.path.join(queuedir, changesname))
@@ -349,7 +366,16 @@ def remove_upload(upload, transaction):
         if os.path.exists(path):
             fs.unlink(path)
         session.delete(byhand)
-    fs.unlink(os.path.join(queuedir, upload.changes.changesname))
+
+    chg = daklib.upload.Changes(queuedir, upload.changes.changesname, keyrings=[], require_signature=False)
+    queue_files = [upload.changes.changesname]
+    queue_files.extend(f.filename for f in chg.buildinfo_files)
+    for fn in queue_files:
+        # We check for `path` to exist as old uploads in policy queues
+        # might still miss the `.buildinfo` files.
+        path = os.path.join(queuedir, fn)
+        if os.path.exists(path):
+            fs.unlink(path)
 
     session.delete(upload)
     session.flush()
@@ -391,7 +417,7 @@ def remove_unreferenced_binaries(policy_queue, transaction):
     session = transaction.session
     suite = policy_queue.suite
 
-    query = """
+    query = sql.text("""
        SELECT b.*
          FROM binaries b
          JOIN bin_associations ba ON b.id = ba.bin
@@ -399,7 +425,7 @@ def remove_unreferenced_binaries(policy_queue, transaction):
           AND NOT EXISTS (SELECT 1 FROM policy_queue_upload_binaries_map pqubm
                                    JOIN policy_queue_upload pqu ON pqubm.policy_queue_upload_id = pqu.id
                                   WHERE pqu.policy_queue_id = :policy_queue_id
-                                    AND pqubm.binary_id = b.id)"""
+                                    AND pqubm.binary_id = b.id)""")
     binaries = session.query(DBBinary).from_statement(query) \
         .params({'suite_id': policy_queue.suite_id, 'policy_queue_id': policy_queue.policy_queue_id})
 
@@ -417,7 +443,7 @@ def remove_unreferenced_sources(policy_queue, transaction):
     session = transaction.session
     suite = policy_queue.suite
 
-    query = """
+    query = sql.text("""
        SELECT s.*
          FROM source s
          JOIN src_associations sa ON s.id = sa.source
@@ -428,7 +454,7 @@ def remove_unreferenced_sources(policy_queue, transaction):
           AND NOT EXISTS (SELECT 1 FROM binaries b
                                    JOIN bin_associations ba ON b.id = ba.bin
                                   WHERE b.source = s.id
-                                    AND ba.suite = :suite_id)"""
+                                    AND ba.suite = :suite_id)""")
     sources = session.query(DBSource).from_statement(query) \
         .params({'suite_id': policy_queue.suite_id, 'policy_queue_id': policy_queue.policy_queue_id})
 

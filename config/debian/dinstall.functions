@@ -157,6 +157,7 @@ function autocruft() {
     log "Check for obsolete binary packages"
     dak auto-decruft -s unstable
     dak auto-decruft -s experimental --if-newer-version-in unstable --if-newer-version-in-rm-msg "NVIU"
+    dak auto-decruft -s testing-proposed-updates --if-newer-version-in testing --if-newer-version-in-rm-msg "NVIT" --decruft-equal-versions
 }
 
 function fingerprints() {
@@ -227,6 +228,20 @@ function dakcleanup() {
     dak clean-queues -i "$unchecked"
 }
 
+function dedup() {
+    log "Dedupe archive"
+    dak archive-dedup-pool
+    for archive in "${public_archives[@]}"; do
+        archiveroot="$(get_archiveroot "${archive}")"
+        cd "${archiveroot}"
+        for dir in doc indices project tools; do
+            if [[ -d ${dir} ]]; then
+                jdupes --hardlink --noempty --quiet --summarize --recurse ${dir}
+            fi
+        done
+    done
+}
+
 function mklslar() {
     local archiveroot
     local FILENAME=ls-lR
@@ -261,6 +276,7 @@ function mkmaintainers() {
 	fi
         cd "${indices}"
 
+        rm -f Maintainers Maintainers.gz Uploaders Uploaders.gz
         dak make-maintainers -a "${archive}" ${scriptdir}/masterfiles/pseudo-packages.maintainers
         gzip -9v --rsyncable  --no-name <Maintainers >Maintainers.gz
         gzip -9v --rsyncable  --no-name <Uploaders >Uploaders.gz
@@ -272,7 +288,8 @@ function copyoverrides() {
 
     (
         shopt -s nullglob
-        for ofile in ${overridedir}/override.{squeeze,wheezy,jessie,stretch,sid}.{,extra.}{main,contrib,non-free}*; do
+        rm -f ${indices}/override.*.gz
+        for ofile in ${overridedir}/override.{wheezy,jessie,stretch,buster,sid}.{,extra.}{main,contrib,non-free}*; do
             bname=${ofile##*/}
             gzip -9cv --rsyncable  --no-name ${ofile} > ${indices}/${bname}.gz
             chmod g+w ${indices}/${bname}.gz
@@ -283,6 +300,10 @@ function copyoverrides() {
 function mkfilesindices() {
     set +o pipefail
     umask 002
+
+    rm -f $base/ftp/indices/files/*.files
+    rm -f $base/ftp/indices/files/components/*.list.gz
+
     cd $base/ftp/indices/files/components
 
     ARCHLIST=$(tempfile)
@@ -404,12 +425,12 @@ function mkfilesindices() {
     done
 
     (cd $base/ftp/
-     for dist in sid jessie stretch; do
+     for dist in sid jessie stretch buster; do
 	 find ./dists/$dist/main/i18n/ \! -type d | sort -u | gzip -9 > $base/ftp/indices/files/components/translation-$dist.list.gz
      done
     )
 
-    (cat ../arch-i386.files ../arch-amd64.files; zcat suite-proposed-updates.list.gz ; zcat translation-sid.list.gz ; zcat translation-jessie.list.gz ; zcat translation-stretch.list.gz) |
+    (cat ../arch-i386.files ../arch-amd64.files; zcat suite-proposed-updates.list.gz ; zcat translation-sid.list.gz ; zcat translation-jessie.list.gz ; zcat translation-stretch.list.gz ; zcat translation-buster.list.gz) |
         sort -u | poolfirst > ../typical.files
 
     rm -f $ARCHLIST
@@ -430,7 +451,6 @@ function mkchecksums() {
         cd "$archiveroot"
         ${bindir}/dsync-flist -q generate $dsynclist --exclude $dsynclist --md5
         ${bindir}/dsync-flist -q md5sums $dsynclist | gzip -9n > ${md5list}.gz
-        ${bindir}/dsync-flist -q link-dups $dsynclist || true
     done
 }
 
@@ -690,7 +710,7 @@ function signotherfiles() {
         cd ${archiveroot}
         rm -f extrafiles
         sha256sum $(find * -type f | egrep -v '(pool|i18n|dep11|source)/|Contents-.*\.(gz|diff)|installer|binary-|(In)?Release(.gpg)?|\.changes' | sort) > ${TMPLO}
-        gpg --no-options --batch --no-tty --armour --personal-digest-preferences=SHA256 --secret-keyring /srv/ftp-master.debian.org/s3kr1t/dot-gnupg/secring.gpg --keyring /srv/ftp-master.debian.org/s3kr1t/dot-gnupg/pubring.gpg --no-options --batch --no-tty --armour --default-key 473041FA --clearsign --output ${archiveroot}/extrafiles ${TMPLO}
+        gpg --no-options --batch --no-tty --armour --personal-digest-preferences=SHA256 --secret-keyring /srv/ftp-master.debian.org/s3kr1t/dot-gnupg/secring.gpg --keyring /srv/ftp-master.debian.org/s3kr1t/dot-gnupg/pubring.gpg --no-options --batch --no-tty --armour --default-key 2B90D010 --clearsign --output ${archiveroot}/extrafiles ${TMPLO}
         rm -f ${TMPLO}
     done
 }
