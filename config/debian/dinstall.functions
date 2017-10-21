@@ -163,6 +163,7 @@ function autocruft() {
 function fingerprints() {
     log "Updating fingerprints"
     dak import-keyring -L /srv/keyring.debian.org/keyrings/debian-keyring.gpg
+    dak import-keyring -L /srv/keyring.debian.org/keyrings/debian-nonupload.gpg
 
     OUTFILE=$( gettempfile )
     dak import-keyring --generate-users "%s" /srv/keyring.debian.org/keyrings/debian-maintainers.gpg >"${OUTFILE}"
@@ -455,38 +456,28 @@ function mkchecksums() {
 }
 
 function mirror() {
-    local archiveroot targetpath TRACEFILE
+    local archiveroot targetpath
+    local -a tracepaths
 
     for archive in "${public_archives[@]}"; do
         archiveroot="$(get_archiveroot "${archive}")"
         targetpath="${mirrordir}/${archive}"
-        TRACEFILE="${archiveroot}/project/trace/ftp-master.debian.org"
-        mkdir -p "${archiveroot}/project/trace/"
 
         log "Regenerating \"public\" mirror/${archive} hardlink fun"
-        DATE_SERIAL=$(date +"%Y%m%d01")
-        FILESOAPLUS1=$(awk '/serial/ { print $3+1 }' ${TRACEFILE} || echo ${DATE_SERIAL} )
-        if [[ ${DATE_SERIAL} -gt ${FILESOAPLUS1}  ]]; then
-            SERIAL="${DATE_SERIAL}"
-        else
-            SERIAL="${FILESOAPLUS1}"
-        fi
-        RFC822DATE=$(LC_ALL=POSIX LANG=POSIX date -u -R)
-        date -u > ${TRACEFILE}
-        {
-            echo "Using dak v1"
-            echo "Running on host: $(hostname -f)"
-            echo "Archive serial: ${SERIAL}"
-            echo "Date: ${RFC822DATE}"
-        } >> ${TRACEFILE}
-        # Now make it accessible via one name, no matter on which host we run
-        cd ${archiveroot}/project/trace/
-        ln -sf ftp-master.debian.org master
+        rsync -aH --link-dest ${archiveroot} \
+            --delete --delete-after --delete-excluded \
+            --exclude "Packages.*.new" --exclude "Sources.*.new" \
+            --filter 'exclude /project/trace/*' \
+            --filter 'protect /project/' \
+            --filter 'protect /project/trace/' \
+            --filter 'protect /project/trace/*' \
+            --ignore-errors \
+            ${archiveroot}/. ${targetpath}/.
 
-        mkdir -p ${targetpath}
-        cd ${targetpath}
-        rsync -aH --link-dest ${archiveroot} --delete --delete-after --delete-excluded --exclude "Packages.*.new" --exclude "Sources.*.new"  --ignore-errors ${archiveroot}/. .
+        tracepaths+=("${targetpath}")
     done
+
+    write_project_trace "${tracepaths[@]}"
 }
 
 function expire() {
@@ -618,7 +609,7 @@ function i18n2() {
         dak control-suite -l ${suite} >${codename}
     done
     echo "${STAMP}" > timestamp
-    gpg --secret-keyring /srv/ftp-master.debian.org/s3kr1t/dot-gnupg/secring.gpg --keyring /srv/ftp-master.debian.org/s3kr1t/dot-gnupg/pubring.gpg --no-options --batch --no-tty --armour --default-key 473041FA --detach-sign -o timestamp.gpg timestamp
+    gpg --homedir /srv/ftp-master.debian.org/s3kr1t/dot-gnupg --no-options --batch --no-tty --armour --default-key 473041FA --detach-sign -o timestamp.gpg timestamp
     rm -f md5sum
     md5sum * > md5sum
     cd ${webdir}/
@@ -710,7 +701,7 @@ function signotherfiles() {
         cd ${archiveroot}
         rm -f extrafiles
         sha256sum $(find * -type f | egrep -v '(pool|i18n|dep11|source)/|Contents-.*\.(gz|diff)|installer|binary-|(In)?Release(.gpg)?|\.changes' | sort) > ${TMPLO}
-        gpg --no-options --batch --no-tty --armour --personal-digest-preferences=SHA256 --secret-keyring /srv/ftp-master.debian.org/s3kr1t/dot-gnupg/secring.gpg --keyring /srv/ftp-master.debian.org/s3kr1t/dot-gnupg/pubring.gpg --no-options --batch --no-tty --armour --default-key 2B90D010 --clearsign --output ${archiveroot}/extrafiles ${TMPLO}
+        gpg --no-options --batch --no-tty --armour --personal-digest-preferences=SHA256 --homedir /srv/ftp-master.debian.org/s3kr1t/dot-gnupg --no-options --batch --no-tty --armour --default-key 2B90D010 --clearsign --output ${archiveroot}/extrafiles ${TMPLO}
         rm -f ${TMPLO}
     done
 }

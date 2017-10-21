@@ -26,13 +26,6 @@ function wbdump() {
     ${masterdir}/scripts/nfu/get-w-b-db
 }
 
-
-# Generate list of override disparities
-function overridedisp() {
-    log "Generating list of override disparities"
-    dak override-disparity | gzip -9 > ${webdir}/override-disparity.gz
-}
-
 # Generate stats about the new queue
 function newstats() {
     log "Generating stats about the new queue"
@@ -63,4 +56,14 @@ function contributor() {
 function cleanurgencylog() {
     log "Cleaning up urgency log"
     find /srv/ftp.debian.org/web/britney/urgencies -type f -mtime +15 -delete
+}
+
+# Update keyring for buildd-add-keys, buildd-remove-keys:
+function update-buildd-admin-keyring() {
+    log "Updateing buildd admin keyring"
+    . ${configdir}/buildd-keyrings.conf
+    cd ${scriptdir}/builddkeyrings
+    gpg --no-default-keyring --keyring /srv/keyring.debian.org/keyrings/debian-keyring.gpg --export "${buildd_admin_keys[@]}" |
+        gpg --no-default-keyring --keyring ./adminkeys.gpg.new --import
+    mv adminkeys.gpg.new adminkeys.gpg
 }

@@ -45,7 +45,7 @@ import commands
 from sqlalchemy.orm import object_session
 
 from daklib import utils, daklog
-from daklib.regexes import re_gensubrelease, re_includeinrelease
+from daklib.regexes import re_gensubrelease, re_includeinrelease_byhash, re_includeinrelease_plain
 from daklib.dak_exceptions import *
 from daklib.dbconn import *
 from daklib.config import Config
@@ -81,12 +81,20 @@ SUITE can be a space separated list, e.g.
 def sign_release_dir(suite, dirname):
     cnf = Config()
 
-    if cnf.has_key("Dinstall::SigningKeyring"):
-        keyring = "--secret-keyring \"%s\"" % cnf["Dinstall::SigningKeyring"]
-        if cnf.has_key("Dinstall::SigningPubKeyring"):
-            keyring += " --keyring \"%s\"" % cnf["Dinstall::SigningPubKeyring"]
-
-        arguments = "--no-options --batch --no-tty --armour --personal-digest-preferences=SHA256"
+    if 'Dinstall::SigningKeyring' in cnf or 'Dinstall::SigningHomedir' in cnf:
+        arguments = ['/usr/bin/gpg',
+                     '--no-options', '--no-tty', '--batch', '--armour',
+                     '--personal-digest-preferences', 'SHA256',
+        ]
+        if 'Dinstall::SigningHomedir' in cnf:
+            arguments.extend(['--homedir', cnf['Dinstall::SigningHomedir']])
+        if 'Dinstall::SigningPassphraseFile' in cnf:
+            arguments.extend(['--pinentry-mode', 'loopback',
+                              '--passphrase-file', cnf['Dinstall::SigningPassphraseFile']])
+        if 'Dinstall::SigningKeyring' in cnf:
+            arguments.extend(['--secret-keyring', cnf['Dinstall::SigningKeyring']])
+        if 'Dinstall::SigningPubKeyring' in cnf:
+            arguments.extend(['--keyring', cnf['Dinstall::SigningPubKeyring']])
 
         relname = os.path.join(dirname, 'Release')
 
@@ -98,14 +106,17 @@ def sign_release_dir(suite, dirname):
         if os.path.exists(inlinedest):
             os.unlink(inlinedest)
 
-        defkeyid=""
         for keyid in suite.signingkeys or []:
-            defkeyid += "--local-user %s " % keyid
+            arguments.extend(['--local-user', keyid])
 
-        os.system("gpg %s %s %s --detach-sign <%s >>%s" %
-                  (keyring, defkeyid, arguments, relname, dest))
-        os.system("gpg %s %s %s --clearsign <%s >>%s" %
-                  (keyring, defkeyid, arguments, relname, inlinedest))
+        with open(relname, 'r') as stdin:
+            with open(dest, 'w') as stdout:
+                arguments_sign = arguments + ['--detach-sign']
+                subprocess.check_call(arguments_sign, stdin=stdin, stdout=stdout)
+            stdin.seek(0)
+            with open(inlinedest, 'w') as stdout:
+                arguments_sign = arguments + ['--clearsign']
+                subprocess.check_call(arguments_sign, stdin=stdin, stdout=stdout)
 
 class XzFile(object):
     def __init__(self, filename, mode='r'):
@@ -199,7 +210,7 @@ class ReleaseWriter(object):
 
         # Update the hashfile table with new or updated files
         for filename in fileinfo:
-            if not os.path.exists(filename):
+            if not os.path.lexists(filename):
                 # probably an uncompressed index we didn't generate
                 continue
             byhashdir = os.path.join(os.path.dirname(filename), 'by-hash')
@@ -227,19 +238,9 @@ class ReleaseWriter(object):
     def _make_byhash_links(self, fileinfo, hashes):
         # Create hardlinks in by-hash directories
         for filename in fileinfo:
-            if not os.path.exists(filename):
+            if not os.path.lexists(filename):
                 # probably an uncompressed index we didn't generate
                 continue
-
-            for h in hashes:
-                field = h.release_field
-                hashfile = os.path.join(os.path.dirname(filename), 'by-hash', field, fileinfo[filename][field])
-
-                # if the hash is known to exist, re-use the old file
-                if os.path.exists(hashfile):
-                    os.unlink(filename)
-                    os.link(hashfile, filename)
-                    break
 
             for h in hashes:
                 field = h.release_field
@@ -254,6 +255,23 @@ class ReleaseWriter(object):
                 except OSError as exc:
                     if exc.errno != errno.EEXIST:
                         raise
+
+    def _make_byhash_base_symlink(self, fileinfo, hashes):
+        # Create symlinks to files in by-hash directories
+        for filename in fileinfo:
+            if not os.path.lexists(filename):
+                # probably an uncompressed index we didn't generate
+                continue
+
+            besthash = hashes[-1]
+            field = besthash.release_field
+            hashfilebase = os.path.join('by-hash', field, fileinfo[filename][field])
+            hashfile = os.path.join(os.path.dirname(filename), hashfilebase)
+
+            assert os.path.exists(hashfile), 'by-hash file {} is missing'.format(hashfile)
+
+            os.unlink(filename)
+            os.symlink(hashfilebase, filename)
 
     def generate_release_files(self):
         """
@@ -367,20 +385,25 @@ class ReleaseWriter(object):
         hashes = [x for x in RELEASE_HASHES if x.db_name in suite.checksums]
 
         fileinfo = {}
+        fileinfo_byhash = {}
 
         uncompnotseen = {}
 
         for dirpath, dirnames, filenames in os.walk(".", followlinks=True, topdown=True):
             for entry in filenames:
-                # Skip things we don't want to include
-                if not re_includeinrelease.match(entry):
-                    continue
-
                 if dirpath == '.' and entry in ["Release", "Release.gpg", "InRelease"]:
                     continue
 
                 filename = os.path.join(dirpath.lstrip('./'), entry)
-                fileinfo[filename] = {}
+
+                if re_includeinrelease_byhash.match(entry):
+                    fileinfo[filename] = fileinfo_byhash[filename] = {}
+                elif re_includeinrelease_plain.match(entry):
+                    fileinfo[filename] = {}
+                # Skip things we don't want to include
+                else:
+                    continue
+
                 contents = open(filename, 'r').read()
 
                 # If we find a file for which we have a compressed version and
@@ -423,8 +446,9 @@ class ReleaseWriter(object):
         out.close()
         os.rename(outfile + '.new', outfile)
 
-        self._update_hashfile_table(session, fileinfo, hashes)
-        self._make_byhash_links(fileinfo, hashes)
+        self._update_hashfile_table(session, fileinfo_byhash, hashes)
+        self._make_byhash_links(fileinfo_byhash, hashes)
+        self._make_byhash_base_symlink(fileinfo_byhash, hashes)
 
         sign_release_dir(suite, os.path.dirname(outfile))
 

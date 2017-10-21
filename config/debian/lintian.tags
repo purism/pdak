@@ -26,6 +26,17 @@ lintian:
     - license-problem-json-evil
     - gzip-file-is-not-multi-arch-same-safe
     - empty-binary-package
+    - dir-or-file-in-etc-opt
+    - license-problem-nvidia-intellectual
+    - license-problem-gfdl-invariants
+    - license-problem-non-free-RFC
+    - source-contains-prebuilt-ms-help-file
+    - source-contains-prebuilt-silverlight-object
+    - copyright-contains-dh_make-todo-boilerplate
+    - pkg-config-multi-arch-wrong-dir
+    - file-name-is-not-valid-UTF-8
+    - pkg-config-bad-directive
+    - quilt-series-without-trailing-newline
   fatal:
     - debian-control-file-uses-obsolete-national-encoding
     - malformed-deb-archive
@@ -88,8 +99,8 @@ lintian:
     - dir-or-file-in-var-lock
     - dir-or-file-in-var-run
     - dir-or-file-in-build-tree
-    - dir-or-file-in-etc-opt
     - dir-or-file-in-home
     - conflicting-negation-in-source-relation
     - license-problem-md5sum-non-distributable-file
     - license-problem-md5sum-non-free-file
+    - latest-debian-changelog-entry-without-new-date

@@ -964,6 +964,7 @@ class ArchiveUpload(object):
                     checks.WeakSignatureCheck,
                     checks.SignatureTimestampCheck,
                     checks.ChangesCheck,
+                    #checks.SuffixCheck,
                     checks.ExternalHashesCheck,
                     checks.SourceCheck,
                     checks.BinaryCheck,

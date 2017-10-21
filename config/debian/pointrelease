@@ -93,7 +93,8 @@ done
 suitename=${suitename:-"jessie"}
 suite=$(psql -qAtc "SELECT suite_name FROM suite WHERE codename='${suitename}'")
 oldrev=$(psql -qAtc "SELECT version FROM suite WHERE codename='${suitename}'")
-newrev=${newrev:-$(( ${oldrev##*.} + 1 ))}
+newrev=${newrev:-${oldrev%.*}.$(( ${oldrev##*.} + 1 ))}
+release_base=https://release.debian.org/proposed-updates/${newrev%%.*}/${newrev}
 PROGRAM="pointrelease_${suitename}"
 
 # Set some variables
@@ -117,20 +118,32 @@ NOW=$(date "+%Y.%m.%d-%H:%M:%S")
 log "Point release for ${suite} (${suitename}); old version: ${oldrev}, new: ${newrev}"
 log "Updates come from ${pusuite}"
 
-log "Preparing"
-pg_timestamp pre_${suite}_${newrev}
 cd ~
 mkdir -p ${suitename}_${newrev}
 cd ${suitename}_${newrev}
-dak control-suite -l ${pusuite} > ${pusuite}.list
-dak control-suite -l ${suite} > ${suite}.list
 
 echo "Is there anything to skip in this release? If so, please enter source package names, whitespace seperated, if not just hit enter"
 read -e -p "Source packages: " skiplist
 confirm
+
+log "Preparing"
+pg_timestamp pre_${suite}_${newrev}
+dak control-suite -l ${pusuite} > ${pusuite}.list &
+dak control-suite -l ${suite} > ${suite}.list &
+if [[ ${suitename} != jessie ]]; then
+    dak control-suite -l ${suite}-debug > ${suite}-debug.list &
+    dak control-suite -l ${pusuite}-debug > ${pusuite}-debug.list &
+fi
+wait
+
 if [[ -n ${skiplist} ]]; then
-  mv ${pusuite}.list ${pusuite}.list.ori
-  grep -vFf <(dak ls -f heidi -S -s ${pusuite} ${skip}) ${pusuite}.list.ori > ${pusuite}.list
+  for s in ${pusuite} ${pusuite}-debug; do
+    if [[ ${s} = ${pusuite}-debug && ${suitename} = jessie ]]; then
+      continue
+    fi
+    mv ${s}.list ${s}.list.ori
+    grep -vFf <(dak ls -f heidi -S -s ${s} ${skiplist}) ${s}.list.ori > ${s}.list
+  done
 fi
 
 log "Creating changelog"
@@ -147,7 +160,13 @@ fi
 
 log "Merging ${pusuite} into ${suite}"
 dak control-suite --add ${suite} < ${pusuite}.list
+if [[ ${suitename} != jessie ]]; then
+    dak control-suite --add ${suite}-debug < ${pusuite}-debug.list
+fi
 dak control-suite --remove ${pusuite} < ${pusuite}.list
+if [[ ${suitename} != jessie ]]; then
+    dak control-suite --remove ${pusuite}-debug < ${pusuite}-debug.list
+fi
 
 log "Cleaning changelogs from proposed-updates"
 pumorguedir="${base}/morgue/queues/$(date +%Y/%m)"
@@ -162,27 +181,25 @@ fi
 
 log "Checking for r0 additions and propups"
 cd ~/${suitename}_${newrev}
-release_base=https://release.debian.org/${pusuite}/${newrev%%.*}/${newrev}
 
-f=${suitename}-r0-additions.cs
-if ${wget} -O "${f}" "${release_base}/${f}"; then
-    echo "Please check ${f}"
-    confirm
-    dak control-suite --add ${suitename}-r0 < ${f}
+propups() {
+    local target_suite="${1}"
+    local f="${2:-propups.${target_suite}}"
+    if ${wget} -O "${f}" "${release_base}/${f}"; then
+        echo "Please check ${f}"
+        confirm
+        dak control-suite --force --add ${target_suite} < ${f}
+    fi
+}
+
+propups ${suitename}-r0 ${suitename}-r0-additions.cs
+propups unstable
+if [[ ${suitename} != jessie ]]; then
+    propups unstable-debug
 fi
-
-f=propups.unstable
-if ${wget} -O "${f}" "${release_base}/${f}"; then
-    echo "Please check ${f}"
-    confirm
-    dak control-suite --force --add unstable < ${f}
-fi
-
-f=propups.testing
-if ${wget} -O "${f}" "${release_base}/${f}"; then
-    echo "Please check ${f}"
-    confirm
-    dak control-suite --force --add testing < ${f}
+propups testing
+if [[ ${suitename} != jessie ]]; then
+    propups testing-debug
 fi
 
 log "RM time"
@@ -217,6 +234,14 @@ confirm
 if [[ -n ${diver} ]]; then
     log "Installing new d-i version ${diver}"
     dak copy-installer -s ${pusuite} -d ${suite} ${diver}
+    # Remove new version from proposed-updates
+    cd $ftpdir/dists/${pusuite}/main
+    for iarch in $(dak admin s-a list-arch ${suite}); do
+        rm -rf -- "installer-${iarch}/${diver}"
+        if [[ -L install-${iarch}/current && "$(readlink install-${iarch}/current)" = "${diver}" ]]; then
+            rm install-${iarch}/current
+        fi
+    done
 
     if [[ -n ${dioldver} ]]; then
         log "Moving old d-i version ${dioldver} to morgue"
@@ -243,9 +268,9 @@ echo "If anything for win32-loader, enter any string, otherwise empty"
 read -e -p "win32-loader?" win32loader
 if [[ -n ${win32loader} ]]; then
     cd ${ftpdir}/tools/win32-loader
-    if [ -d ${suitename}-proposed-updates ]; then
+    if [ -d ${pusuite} ]; then
         rm -r ${suite}
-        mv ${suitename}-proposed-updates ${suite}
+        mv ${pusuite} ${suite}
     fi
     cd ${ftpdir}
 fi
@@ -281,8 +306,9 @@ log "Updating suite table in postgres"
 mdate=$(date +"%d %B %Y")
 psql projectb <<EOF
 begin;
-update suite set version = '${newrev}' where suite_name = '${suite}';
+update suite set version = '${newrev}' where suite_name = '${suite}' or suite_name = '${suite}-debug';
 update suite set description = 'Debian ${newrev} Released ${mdate}' where suite_name = '${suite}';
+update suite set description = 'Debian ${newrev} Released ${mdate} - Debug Information' where suite_name = '${suite}-debug';
 commit;
 EOF
 
@@ -309,35 +335,60 @@ if [[ ${hadremove} -ne 0 ]]; then
     $EDITOR ${ftpdir}/dists/${suite}/ChangeLog ${webdir}/removals.txt
 fi
 
+if [[ ${suitename} != jessie ]]; then
+    log "Cleaning up debug suite"
+    dak manage-debug-suites ${suite}-debug ${pusuite}-debug
+fi
+
 log "Time to run gps/contents, RMs can check if all looks ok"
-dak generate-packages-sources2 --force -s ${suite},${pusuite}
-${scriptsdir}/sync-release ${suitename} &
+gps_suites=${suite},${pusuite}
+if [[ ${suitename} != jessie ]]; then
+    gps_suites=${gps_suites},${suite}-debug,${pusuite}-debug
+fi
+dak generate-packages-sources2 --force -s ${gps_suites}
+${scriptsdir}/sync-release ${suite} &
 log "Contents"
 dak contents generate -f -s ${suite} -a ftp-master
 wait
-${scriptsdir}/sync-release ${suitename}
-
-if [[ ${suitename} == wheezy ]]; then
-  ${scriptsdir}/generate-i18n-Index "${ftpdir}/dists/${suite}"
+${scriptsdir}/sync-release ${suite}
+if [[ ${suitename} != jessie ]]; then
+    ${scriptsdir}/sync-release ${suite}-debug
 fi
 
 echo "Generate release files?"
 confirm
-dak generate-releases -f -s ${suite} ${pusuite}
-${scriptsdir}/sync-release ${suitename}
+release_suites="${suite} ${pusuite}"
+if [[ ${suitename} != jessie ]]; then
+    release_suites="${release_suites} ${suite}-debug ${pusuite}-debug"
+fi
+dak generate-releases -f -s ${release_suites}
+${scriptsdir}/sync-release ${suite}
+if [[ ${suitename} != jessie ]]; then
+    ${scriptsdir}/sync-release ${suite}-debug
+fi
 
 log "Release file generated, waiting for RMs checking and (hopefully) signing"
 
 # Remove InRelease: Release can be signed by both ftpmaster & stable release keys
-rm ${ftpdir}/dists/${suite}/InRelease ${ftpdir}/zzz-dists/${suite}/InRelease
-releasefile=Release-${newrev}.gpg
-cd ~/${suitename}_${newrev}
-while ! ${wget} -O "${releasefile}" "${release_base}/${releasefile}"; do
-    sleep 10
-done
-cd ${ftpdir}/dists/${suite}
-cat ~/${suitename}_${newrev}/${releasefile} >> Release.gpg
-gpg --no-default-keyring --keyring /usr/share/keyrings/debian-archive-keyring.gpg --trust-model=always --verify Release.gpg Release
+merge-release-signatures() {
+    local archiveroot="${1}"
+    local s="${2}"
+    local releasefile="${3}"
+    rm -f ${archiveroot}/dists/${s}/InRelease ${archiveroot}/zzz-dists/${s}/InRelease
+    cd ~/${suitename}_${newrev}
+    while ! ${wget} -O "${releasefile}" "${release_base}/${releasefile}"; do
+        sleep 10
+    done
+    cd ${archiveroot}/dists/${s}
+    cat ~/${suitename}_${newrev}/${releasefile} >> Release.gpg
+    gpg --no-default-keyring --keyring /usr/share/keyrings/debian-archive-keyring.gpg --trust-model=always --verify Release.gpg Release
+}
+
+merge-release-signatures $(get_archiveroot ftp-master) ${suite} Release-${newrev}.gpg
+if [[ ${suitename} != jessie ]]; then
+    merge-release-signatures $(get_archiveroot debian-debug) ${suite}-debug Release-${newrev}-debug.gpg
+fi
+
 echo "Done. Is a mirrorpush needed? Or just one to the cd-builder?"
 read -e -p "Mirrorpush? no/cd/yes " -i "cd" mirrorpush
 

@@ -2,6 +2,8 @@ Source: dak
 Section: misc
 Priority: extra
 Build-Depends: debhelper (>= 9~),
+               postgresql-9.6 | postgresql-9.4,
+               postgresql-9.6-debversion | postgresql-9.4-debversion,
                python-all-dev,
                python-apt,
                python-debian,
@@ -32,7 +34,7 @@ Depends: binutils-multiarch,
          python-psycopg2,
          python-pyrss2gen,
          python-rrdtool,
-         python-sqlalchemy (<< 1.0),
+         python-sqlalchemy,
          python-yaml,
          symlinks,
          ${python:Depends}

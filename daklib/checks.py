@@ -260,6 +260,37 @@ class ChangesCheck(Check):
 
         return True
 
+class SuffixCheck(Check):
+    """Checks suffix of .changes and .buildinfo files.
+
+    buildd uploads will include _${arch}.changes and _${arch}.buildinfo, so such endings
+    should be reserved for uploads including binaries for ${arch} to avoid conflicts
+    (for example in policy queues where dak stores the .changes and .buildinfo for later
+    processing)
+    """
+    def check(self, upload):
+        session = upload.session
+        changes = upload.changes
+
+        suffixes = []
+
+        changes_match = re_file_changes.match(changes.filename)
+        assert(changes_match)
+        suffixes.append((changes.filename, changes_match.group('suffix')))
+
+        for bi in changes.buildinfo_files:
+            bi_match = re_file_buildinfo.match(bi.filename)
+            assert(bi_match)
+            suffixes.append((bi.filename, bi_match.group('suffix')))
+
+        for fn, suffix in suffixes:
+            if suffix in changes.architectures:
+                continue
+            if session.query(Architecture).filter_by(arch_string=suffix).first():
+                raise Reject("The upload includes '{}' whose filename includes the architecture name {}, but does not include binaries for {}. It is rejected to avoid filename conflicts with later buildd uploads.".format(fn, suffix, suffix))
+
+        return True
+
 class ExternalHashesCheck(Check):
     """Checks hashes in .changes and .dsc against an external database."""
     def check_single(self, session, f):
@@ -303,8 +334,16 @@ class BinaryCheck(Check):
         debug_deb_name_postfix = "-dbgsym"
         # XXX: Handle dynamic debug section name here
 
+        self._architectures = set()
+
         for binary in upload.changes.binaries:
             self.check_binary(upload, binary)
+
+        for arch in upload.changes.architectures:
+            if arch == 'source':
+                continue
+            if arch not in self._architectures:
+                raise Reject('{}: Architecture field includes {}, but no binary packages for {} are included in the upload'.format(upload.changes.filename, arch, arch))
 
         binaries = {binary.control['Package']: binary
                         for binary in upload.changes.binaries}
@@ -365,6 +404,7 @@ class BinaryCheck(Check):
             raise Reject('{0}: Architecture not in Architecture field in changes file'.format(fn))
         if architecture == 'source':
             raise Reject('{0}: Architecture "source" invalid for binary packages'.format(fn))
+        self._architectures.add(architecture)
 
         source = control.get('Source')
         if source is not None and not re_field_source.match(source):
@@ -475,7 +515,12 @@ class SourceCheck(Check):
 
     def check(self, upload):
         if upload.changes.source is None:
+            if "source" in upload.changes.architectures:
+                raise Reject("{}: Architecture field includes source, but no source package is included in the upload".format(upload.changes.filename))
             return True
+
+        if "source" not in upload.changes.architectures:
+            raise Reject("{}: Architecture field does not include source, but a source package is included in the upload".format(upload.changes.filename))
 
         changes = upload.changes.changes
         source = upload.changes.source
@@ -741,7 +786,7 @@ class NoSourceOnlyCheck(Check):
                           'oldoldstable-backports', 'oldoldstable-backports-sloppy',
                           'wheezy-backports', 'wheezy-backports-sloppy'):
                 if suite in changes.distributions:
-                    raise Reject('Suite {} is not configured to build arch:all packages. Please include them in your upload')
+                    raise Reject('Suite {} is not configured to build arch:all packages. Please include them in your upload'.format(suite))
 
         return True
 

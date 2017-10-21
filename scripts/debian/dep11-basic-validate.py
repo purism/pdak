@@ -22,6 +22,7 @@ import gzip
 import lzma
 from voluptuous import Schema, Required, All, Any, Length, Range, Match, Url
 from optparse import OptionParser
+import multiprocessing as mp
 
 schema_header = Schema({
     Required('File'): All(str, 'DEP-11', msg="Must be \"DEP-11\""),
@@ -55,9 +56,6 @@ def test_custom_objects(lines):
             ret = False
     return ret
 
-def is_quoted(s):
-        return (s.startswith("\"") and s.endswith("\"")) or (s.startswith("\'") and s.endswith("\'"))
-
 def test_localized_dict(doc, ldict, id_string):
     ret = True
     for lang, value in ldict.items():
@@ -67,8 +65,6 @@ def test_localized_dict(doc, ldict, id_string):
             add_issue("[%s][%s]: %s" % (doc['ID'], id_string, "Found cruft locale: xx"))
         if lang.endswith('.UTF-8'):
             add_issue("[%s][%s]: %s" % (doc['ID'], id_string, "AppStream locale names should not specify encoding (ends with .UTF-8)"))
-        if is_quoted(value):
-            add_issue("[%s][%s]: %s" % (doc['ID'], id_string, "String is quoted: '%s' @ %s" % (value, lang)))
         if " " in lang:
             add_issue("[%s][%s]: %s" % (doc['ID'], id_string, "Locale name contains space: '%s'" % (lang)))
             # this - as opposed to the other issues - is an error
@@ -167,6 +163,9 @@ def validate_file(fname):
 
 def validate_dir(dirname):
     ret = True
+    asfiles = []
+
+    # find interesting files
     for root, subfolders, files in os.walk(dirname):
         for fname in files:
             fpath = os.path.join(root, fname)
@@ -174,8 +173,14 @@ def validate_dir(dirname):
                 add_issue("FATAL: Symlinks are not allowed")
                 return False
             if fname.endswith(".yml.gz") or fname.endswith(".yml.xz"):
-                if not validate_file(fpath):
-                    ret = False
+                asfiles.append(fpath)
+
+    # validate the files, use multiprocessing to speed up the validation
+    with mp.Pool() as pool:
+        results = [pool.apply_async(validate_file, (fname,)) for fname in asfiles]
+        for res in results:
+            if not res.get():
+                ret = False
 
     return ret
 

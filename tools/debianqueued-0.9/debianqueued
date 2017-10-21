@@ -37,6 +37,20 @@ $ENV{"LC_ALL"} = "C";
 package conf;
 ( $conf::queued_dir = ( ( $0 !~ m,^/, ) ? POSIX::getcwd() . "/" : "" ) . $0 )
   =~ s,/[^/]+$,,;
+
+# various programs:
+our $gpg       = "/usr/bin/gpg";
+our $ssh       = "/usr/bin/ssh";
+our $scp       = "/usr/bin/scp";
+our $ssh_agent = "/usr/bin/ssh-agent";
+our $ssh_add   = "/usr/bin/ssh-add";
+our $mail      = "/usr/sbin/sendmail";
+
+# default umask:
+#   This is mostly for the "copy" upload method.  Logs, pidfile get
+#   explicit permissions via `chmod`.
+our $umask     = 0022;
+
 require "$conf::queued_dir/config";
 my $junk = $conf::debug;    # avoid spurious warnings about unused vars
 $junk = $conf::ssh_key_file;
@@ -50,11 +64,9 @@ $junk = $conf::upload_delay_1;
 $junk = $conf::upload_delay_2;
 $junk = $conf::check_md5sum;
 
-#$junk = $conf::ls;
 $junk         = $conf::ftpdebug;
 $junk         = $conf::ftptimeout;
 $junk         = @conf::nonus_packages;
-$junk         = @conf::test_binaries;
 $junk         = @conf::maintainer_mail;
 $junk         = @conf::targetdir_delayed;
 $junk         = $conf::mail ||= '/usr/sbin/sendmail';
@@ -62,6 +74,10 @@ $junk         = $conf::overridemail;
 $conf::target = "localhost" if $conf::upload_method eq "copy";
 
 package main;
+
+if (defined $conf::umask) {
+  umask $conf::umask;
+}
 
 ( $main::progname = $0 ) =~ s,.*/,,;
 
@@ -180,7 +196,7 @@ do {
 # check if all programs exist
 my $prg;
 foreach $prg ( $conf::gpg, $conf::ssh, $conf::scp, $conf::ssh_agent,
-               $conf::ssh_add, $conf::mail, $conf::mkfifo )
+               $conf::ssh_add, $conf::mail )
 {
   die "Required program $prg doesn't exist or isn't executable\n"
     if !-x $prg;
@@ -446,18 +462,6 @@ sub check_dir() {
   debug("starting checkdir");
   $main::dstat = "c";
   write_status_file() if $conf::statusdelay;
-
-  # test if needed binaries are available; this is if they're on maybe
-  # slow-mounted NFS filesystems
-  foreach (@conf::test_binaries) {
-    next if -f $_;
-
-    # maybe the mount succeeds now
-    sleep 5;
-    next if -f $_;
-    msg( "log", "binary test failed for $_; delaying queue run\n" );
-    goto end_run;
-  } ## end foreach (@conf::test_binaries)
 
   for ( $adelay = -1 ; $adelay <= $conf::max_delayed ; $adelay++ ) {
     if ( $adelay == -1 ) {
@@ -1738,9 +1742,8 @@ sub fork_statusd() {
   $SIG{"CHLD"} = "DEFAULT";
 
   rm($conf::statusfile);
-  $errs = `$conf::mkfifo $conf::statusfile`;
-  die "$main::progname: cannot create named pipe $conf::statusfile: $errs"
-    if $?;
+  POSIX::mkfifo($conf::statusfile, 0644)
+    or die "Cannot create named pipe $conf::statusfile: $!\n";
   chmod( 0644, $conf::statusfile )
     or die "Cannot set modes of $conf::statusfile: $!\n";
 
