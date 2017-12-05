@@ -22,6 +22,7 @@ import gzip
 import lzma
 from voluptuous import Schema, Required, All, Any, Length, Range, Match, Url
 from optparse import OptionParser
+import multiprocessing as mp
 
 schema_header = Schema({
     Required('File'): All(str, 'DEP-11', msg="Must be \"DEP-11\""),
@@ -41,14 +42,11 @@ schema_component = Schema({
     Required('Type'): All(str, Length(min=1)),
     Required('ID'): All(str, Length(min=1)),
     Required('Name'): All(dict, Length(min=1), schema_translated),
-    Required('Package'): All(str, Length(min=1)),
+    Required('Summary'): All(dict, Length(min=1)),
 }, extra = True)
 
 def add_issue(msg):
-    try:
-        print(msg)
-    except UnicodeEncodeError:
-        print(msg.encode('ascii', 'replace'))
+    print(msg)
 
 def test_custom_objects(lines):
     ret = True
@@ -57,9 +55,6 @@ def test_custom_objects(lines):
             add_issue("Python object encoded in line %i." % (i))
             ret = False
     return ret
-
-def is_quoted(s):
-        return (s.startswith("\"") and s.endswith("\"")) or (s.startswith("\'") and s.endswith("\'"))
 
 def test_localized_dict(doc, ldict, id_string):
     ret = True
@@ -70,8 +65,6 @@ def test_localized_dict(doc, ldict, id_string):
             add_issue("[%s][%s]: %s" % (doc['ID'], id_string, "Found cruft locale: xx"))
         if lang.endswith('.UTF-8'):
             add_issue("[%s][%s]: %s" % (doc['ID'], id_string, "AppStream locale names should not specify encoding (ends with .UTF-8)"))
-        if is_quoted(value):
-            add_issue("[%s][%s]: %s" % (doc['ID'], id_string, "String is quoted: '%s' @ %s" % (value, lang)))
         if " " in lang:
             add_issue("[%s][%s]: %s" % (doc['ID'], id_string, "Locale name contains space: '%s'" % (lang)))
             # this - as opposed to the other issues - is an error
@@ -106,35 +99,39 @@ def validate_data(data):
             ret = False
 
         for doc in docs:
-            docid = doc.get('ID')
+            cptid = doc.get('ID')
             pkgname = doc.get('Package')
-            if not pkgname:
-                pkgname = "?unknown?"
+            cpttype = doc.get('Type')
             if not doc:
                 add_issue("FATAL: Empty document found.")
                 ret = False
                 continue
-            if not docid:
+            if not cptid:
                 add_issue("FATAL: Component without ID found.")
                 ret = False
                 continue
+            if not pkgname:
+                if cpttype != "web-application":
+                    add_issue("[%s]: %s" % (cptid, "Component is missing a 'Package' key."))
+                    ret = False
+                    continue
 
             try:
                 schema_component(doc)
             except Exception as e:
-                add_issue("[%s]: %s" % (docid, str(e)))
+                add_issue("[%s]: %s" % (cptid, str(e)))
                 ret = False
                 continue
 
             # more tests for the icon key
             icon = doc.get('Icon')
-            if (doc['Type'] == "desktop-app") or (doc['Type'] == "web-app"):
+            if (cpttype == "desktop-application") or (cpttype == "web-application"):
                 if not doc.get('Icon'):
-                    add_issue("[%s]: %s" % (docid, "Components containing an application must have an 'Icon' key."))
+                    add_issue("[%s]: %s" % (cptid, "Components containing an application must have an 'Icon' key."))
                     ret = False
             if icon:
                 if (not icon.get('stock')) and (not icon.get('cached')) and (not icon.get('local')):
-                    add_issue("[%s]: %s" % (docid, "A 'stock', 'cached' or 'local' icon must at least be provided. @ data['Icon']"))
+                    add_issue("[%s]: %s" % (cptid, "A 'stock', 'cached' or 'local' icon must at least be provided. @ data['Icon']"))
                     ret = False
 
             if not test_localized(doc, 'Name'):
@@ -170,6 +167,9 @@ def validate_file(fname):
 
 def validate_dir(dirname):
     ret = True
+    asfiles = []
+
+    # find interesting files
     for root, subfolders, files in os.walk(dirname):
         for fname in files:
             fpath = os.path.join(root, fname)
@@ -177,8 +177,14 @@ def validate_dir(dirname):
                 add_issue("FATAL: Symlinks are not allowed")
                 return False
             if fname.endswith(".yml.gz") or fname.endswith(".yml.xz"):
-                if not validate_file(fpath):
-                    ret = False
+                asfiles.append(fpath)
+
+    # validate the files, use multiprocessing to speed up the validation
+    with mp.Pool() as pool:
+        results = [pool.apply_async(validate_file, (fname,)) for fname in asfiles]
+        for res in results:
+            if not res.get():
+                ret = False
 
     return ret
 
