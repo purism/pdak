@@ -61,7 +61,7 @@ from sqlalchemy import create_engine, Table, MetaData, Column, Integer, desc, \
     Text, ForeignKey
 from sqlalchemy.orm import sessionmaker, mapper, relation, object_session, \
     backref, MapperExtension, EXT_CONTINUE, object_mapper, clear_mappers
-from sqlalchemy import types as sqltypes
+import sqlalchemy.types
 from sqlalchemy.orm.collections import attribute_mapped_collection
 from sqlalchemy.ext.associationproxy import association_proxy
 
@@ -90,30 +90,18 @@ warnings.filterwarnings('ignore', \
 # Patch in support for the debversion field type so that it works during
 # reflection
 
-try:
-    # that is for sqlalchemy 0.6
-    UserDefinedType = sqltypes.UserDefinedType
-except:
-    # this one for sqlalchemy 0.5
-    UserDefinedType = sqltypes.TypeEngine
-
-class DebVersion(UserDefinedType):
+class DebVersion(sqlalchemy.types.UserDefinedType):
     def get_col_spec(self):
         return "DEBVERSION"
 
     def bind_processor(self, dialect):
         return None
 
-    # ' = None' is needed for sqlalchemy 0.5:
-    def result_processor(self, dialect, coltype = None):
+    def result_processor(self, dialect, coltype):
         return None
 
-sa_major_version = sqlalchemy.__version__[0:3]
-if sa_major_version in ["0.5", "0.6", "0.7", "0.8", "0.9", "1.0"]:
-    from sqlalchemy.databases import postgres
-    postgres.ischema_names['debversion'] = DebVersion
-else:
-    raise Exception("dak only ported to SQLA versions 0.5 to 1.0 (%s installed).  See daklib/dbconn.py" % sa_major_version)
+from sqlalchemy.databases import postgres
+postgres.ischema_names['debversion'] = DebVersion
 
 ################################################################################
 
@@ -2633,8 +2621,7 @@ class DBConn(object):
             engine_args['pool_size'] = int(cnf['DB::PoolSize'])
         if cnf.has_key('DB::MaxOverflow'):
             engine_args['max_overflow'] = int(cnf['DB::MaxOverflow'])
-        if sa_major_version != '0.5' and cnf.has_key('DB::Unicode') and \
-            cnf['DB::Unicode'] == 'false':
+        if cnf.get('DB::Unicode') == 'false':
             engine_args['use_native_unicode'] = False
 
         # Monkey patch a new dialect in in order to support service= syntax
