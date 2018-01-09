@@ -322,8 +322,8 @@ GO=(
 stage $GO
 
 GO=(
-    FUNC="laniakea_eggshell"
-    TIME="laniakea_eggshell"
+    FUNC="laniakea_planter"
+    TIME="laniakea_planter"
     ARGS=""
     ERR=""
 )

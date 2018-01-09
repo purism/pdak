@@ -434,9 +434,9 @@ function laniakea_spears() {
     /usr/local/lib/laniakea/spears migrate
 }
 
-function laniakea_eggshell() {
+function laniakea_planter() {
     log "Creating default metapackage reports"
-    /usr/local/lib/laniakea/eggshell run
+    /usr/local/lib/laniakea/planter run
 }
 
 function laniakea_debcheck() {
