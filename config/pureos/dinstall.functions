@@ -445,6 +445,12 @@ function laniakea_debcheck() {
     /usr/local/lib/laniakea/debcheck binaries
 }
 
+function laniakea_dataimport() {
+    log "Updating Laniakea package database..."
+    /usr/local/lib/laniakea/lk-dataimport repo landing
+    /usr/local/lib/laniakea/lk-dataimport repo green
+}
+
 function sync_master_web() {
     rsync -artq  --chmod=F644,D755 --delete --delete-after --safe-links -e "ssh -p 3376" /srv/dak/export/ master.pureos.net:/srv/master.pureos.net/export | true
     rsync -artqL --chmod=F644,D755 --delete --delete-after --safe-links -e "ssh -p 3376" /srv/master.pureos.net/ master.pureos.net:/srv/master.pureos.net/raw | true
