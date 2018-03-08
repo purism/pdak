@@ -45,7 +45,7 @@ case $SUITE in
 esac
 
 # This must end with /
-TARGET="/srv/dak/ftp/dists/$SUITE/main/installer-$ARCH/"
+TARGET="/srv/dak/ftp/pureos/dists/$SUITE/main/installer-$ARCH/"
 
 # Check validity of the target directory
 # This could fail, for example for new architectures; doing
