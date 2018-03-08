@@ -63,14 +63,14 @@ cd $masterdir
 echo "Importing new data for ${IMPORTSUITE} into database"
 
 if [ "x${DO_CHANGELOG}x" = "xtruex" ]; then
-    rm -f ${ftpdir}/dists/${IMPORTSUITE}/ChangeLog
+    rm -f ${ftpdir}/pureos/dists/${IMPORTSUITE}/ChangeLog
     BRITNEY=" --britney"
 fi
 
 dak control-suite --set ${IMPORTSUITE} ${BRITNEY} < ${INPUTFILE}
 
 if [ "x${DO_CHANGELOG}x" = "xtruex" ]; then
-    cd ${ftpdir}/dists/${IMPORTSUITE}/
+    cd ${ftpdir}/pureos/dists/${IMPORTSUITE}/
     mv ChangeLog ChangeLog.${NOW}
     ln -s ChangeLog.${NOW} ChangeLog
     find . -maxdepth 1 -mindepth 1 -type f -mmin +2880 -name 'ChangeLog.*' -delete

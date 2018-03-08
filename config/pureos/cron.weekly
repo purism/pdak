@@ -26,10 +26,16 @@ trap cleanup 0
 ################################################################################
 
 # Purge empty directories
-echo "Purging empty directories in $ftpdir/pool/"
+echo "Purging empty directories in $ftpdir/pureos/pool/"
 
-if [ ! -z "$(find $ftpdir/pool/ -type d -empty)" ]; then
-   find $ftpdir/pool/ -type d -empty | xargs rmdir;
+if [ ! -z "$(find $ftpdir/pureos/pool/ -type d -empty)" ]; then
+   find $ftpdir/pureos/pool/ -type d -empty | xargs rmdir;
+fi
+
+echo "Purging empty directories in $ftpdir/pureos-debug/pool/"
+
+if [ ! -z "$(find $ftpdir/pureos-debug/pool/ -type d -empty)" ]; then
+   find $ftpdir/pureos-debug/pool/ -type d -empty | xargs rmdir;
 fi
 
 echo "Fixing symlinks in $ftpdir"

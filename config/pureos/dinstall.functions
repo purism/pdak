@@ -84,14 +84,19 @@ function pdiff() {
 }
 
 function mirror() {
-    local archiveroot
+    local archiveroot_main
+    local archiveroot_debug
 
-    archiveroot="$(get_archiveroot "repo")"
+    archiveroot_main="$(get_archiveroot "repo")"
+    archiveroot_debug="$(get_archiveroot "repo-debug")"
     cd $public_ftpdir
     # sync the dists dir without hardlinks
     # (this is done to prevent archive issues while the indices are rebuilt)
-    rsync -aqH --delete --delete-after ${archiveroot}/dists ./pureos/
-    rsync -aqH --delete --delete-after ${archiveroot}/zzz-dists ./pureos/
+    rsync -aqH --delete --delete-after ${archiveroot_main}/dists ./pureos/
+    rsync -aqH --delete --delete-after ${archiveroot_main}/zzz-dists ./pureos/
+
+    rsync -aqH --delete --delete-after ${archiveroot_debug}/dists ./pureos-debug/
+    rsync -aqH --delete --delete-after ${archiveroot_debug}/zzz-dists ./pureos-debug/
 }
 
 function release() {
@@ -145,134 +150,6 @@ function mkmaintainers() {
         gzip -9v --rsyncable <Maintainers >Maintainers.gz
         gzip -9v --rsyncable <Uploaders >Uploaders.gz
     done
-}
-
-function mkfilesindices() {
-    set +o pipefail
-    umask 002
-    cd $base/ftp/indices/files/components
-
-    ARCHLIST=$(tempfile)
-
-    log "Querying postgres"
-    local query="
-      SELECT './pool/' || c.name || '/' || f.filename AS path, a.arch_string AS arch_string
-      FROM files f
-      JOIN files_archive_map af ON f.id = af.file_id
-      JOIN component c ON af.component_id = c.id
-      JOIN archive ON af.archive_id = archive.id
-      LEFT OUTER JOIN
-        (binaries b
-         JOIN architecture a ON b.architecture = a.id)
-        ON f.id = b.file
-      WHERE archive.name = 'ftp-master'
-      ORDER BY path, arch_string
-    "
-    psql -At -c "$query" >$ARCHLIST
-
-    includedirs () {
-        perl -ne 'print; while (m,/[^/]+$,) { $_=$`; print $_ . "\n" unless $d{$_}++; }'
-    }
-    poolfirst () {
-        perl -e '@nonpool=(); while (<>) { if (m,^\./pool/,) { print; } else { push @nonpool, $_; } } print for (@nonpool);'
-    }
-
-    log "Generating sources list"
-    (
-        sed -n 's/|$//p' $ARCHLIST
-        cd $base/ftp
-        find ./dists -maxdepth 1 \! -type d
-        find ./dists \! -type d | grep "/source/"
-    ) | sort -u | gzip -9 > source.list.gz
-
-    log "Generating arch lists"
-
-    ARCHES=$( (<$ARCHLIST sed -n 's/^.*|//p'; echo amd64) | grep . | grep -v all | sort -u)
-    for a in $ARCHES; do
-        (sed -n "s/|$a$//p" $ARCHLIST
-            sed -n 's/|all$//p' $ARCHLIST
-
-            cd $base/ftp
-            find ./dists -maxdepth 1 \! -type d
-            find ./dists \! -type d | grep -E "(proposed-updates.*_$a.changes$|/main/disks-$a/|/main/installer-$a/|/Contents-$a|/binary-$a/)"
-        ) | sort -u | gzip -9 > arch-$a.list.gz
-    done
-
-    log "Generating suite lists"
-
-    suite_list () {
-	local suite_id="$(printf %d $1)"
-	local query
-	query="
-          SELECT DISTINCT './pool/' || c.name || '/' || f.filename
-          FROM
-            (SELECT sa.source AS source
-               FROM src_associations sa
-              WHERE sa.suite = $suite_id
-             UNION
-             SELECT esr.src_id
-               FROM extra_src_references esr
-               JOIN bin_associations ba ON esr.bin_id = ba.bin
-               WHERE ba.suite = $suite_id
-             UNION
-             SELECT b.source AS source
-               FROM bin_associations ba
-               JOIN binaries b ON ba.bin = b.id WHERE ba.suite = $suite_id) s
-            JOIN dsc_files df ON s.source = df.source
-            JOIN files f ON df.file = f.id
-            JOIN files_archive_map af ON f.id = af.file_id
-            JOIN component c ON af.component_id = c.id
-            JOIN archive ON af.archive_id = archive.id
-            WHERE archive.name = 'ftp-master'
-        "
-	psql -F' ' -A -t -c "$query"
-
-	query="
-          SELECT './pool/' || c.name || '/' || f.filename
-          FROM bin_associations ba
-          JOIN binaries b ON ba.bin = b.id
-          JOIN files f ON b.file = f.id
-          JOIN files_archive_map af ON f.id = af.file_id
-          JOIN component c ON af.component_id = c.id
-          JOIN archive ON af.archive_id = archive.id
-          WHERE ba.suite = $suite_id AND archive.name = 'ftp-master'
-        "
-	psql -F' ' -A -t -c "$query"
-    }
-
-    psql -F' ' -At -c "SELECT id, suite_name FROM suite" |
-    while read id suite; do
-        [ -e $base/ftp/dists/$suite ] || continue
-        (
-            (cd $base/ftp
-                distname=$(cd dists; readlink $suite || echo $suite)
-                find ./dists/$distname \! -type d
-                for distdir in ./dists/*; do
-                    [ "$(readlink $distdir)" != "$distname" ] || echo $distdir
-                done
-            )
-            suite_list $id
-        ) | sort -u | gzip -9 > suite-${suite}.list.gz
-    done
-
-    log "Finding everything on the ftp site to generate sundries"
-    (cd $base/ftp; find . \! -type d \! -name 'Archive_Maintenance_In_Progress' | sort) >$ARCHLIST
-
-    rm -f sundries.list
-    zcat *.list.gz | cat - *.list | sort -u |
-    diff - $ARCHLIST | sed -n 's/^> //p' > sundries.list
-
-    log "Generating files list"
-
-    for a in $ARCHES; do
-        (echo ./project/trace; zcat arch-$a.list.gz source.list.gz) |
-        cat - sundries.list dists.list project.list docs.list indices.list |
-        sort -u | poolfirst > ../arch-$a.files
-    done
-
-    rm -f $ARCHLIST
-    log "Done!"
-    set -o pipefail
 }
 
 function mkchecksums() {
@@ -411,9 +288,9 @@ function dep11() {
         for dir in ${extimportdists}; do
             if [[ -d ${dir}/  ]]; then
                 for comp in main; do
-                    mkdir -p ${ftpdir}/dists/${dir}/${comp}/dep11
+                    mkdir -p ${ftpdir}/pureos/dists/${dir}/${comp}/dep11
                     cd ${dir}/${comp}
-                    rsync -rtq --delete --delete-after --exclude by-hash --exclude "./*.tmp" . ${ftpdir}/dists/${dir}/${comp}/dep11/.
+                    rsync -rtq --delete --delete-after --exclude by-hash --exclude "./*.tmp" . ${ftpdir}/pureos/dists/${dir}/${comp}/dep11/.
                     cd ${dep11dir}
                 done
             fi
