@@ -328,6 +328,11 @@ function laniakea_dataimport() {
     /usr/local/lib/laniakea/lk-dataimport repo green
 }
 
+function laniakea_ariadne() {
+    log "Scheduling package build jobs..."
+    /usr/local/lib/laniakea/ariadne run --architecture=amd64
+}
+
 function sync_master_web() {
     rsync -artq  --chmod=F644,D755 --delete --delete-after --safe-links -e "ssh -p 3376" /srv/dak/export/ master.pureos.net:/srv/master.pureos.net/export | true
     rsync -artqL --chmod=F644,D755 --delete --delete-after --safe-links -e "ssh -p 3376" /srv/master.pureos.net/ master.pureos.net:/srv/master.pureos.net/raw | true
