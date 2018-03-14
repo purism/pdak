@@ -330,7 +330,7 @@ function laniakea_dataimport() {
 
 function laniakea_ariadne() {
     log "Scheduling package build jobs..."
-    /usr/local/lib/laniakea/ariadne run --architecture=amd64
+    /usr/local/lib/laniakea/ariadne run
 }
 
 function sync_master_web() {
