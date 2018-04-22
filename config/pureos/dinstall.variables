@@ -52,7 +52,7 @@ TRACEFILE="${ftpdir}/project/trace/repo.puri.sm"
 # as thats usually testing and unstable, but we need codenames,
 # get them out of the db.
 extimportdists=""
-for suite in green landing; do
+for suite in green landing laboratory; do
     codename=$(dak admin s show ${suite}|grep '^Codename')
     codename=${codename##* }
     extimportdists="${extimportdists} ${codename}"

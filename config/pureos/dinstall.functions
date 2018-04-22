@@ -326,6 +326,7 @@ function laniakea_dataimport() {
     log "Updating Laniakea package database..."
     /usr/local/lib/laniakea/lk-dataimport repo landing
     /usr/local/lib/laniakea/lk-dataimport repo green
+    /usr/local/lib/laniakea/lk-dataimport repo laboratory
 }
 
 function laniakea_ariadne() {

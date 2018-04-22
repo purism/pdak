@@ -36,7 +36,7 @@ ftpgroup=debadmin
 public_archives=(repo repo-debug)
 devel_suite="green"
 staging_suite="landing"
-suites_incoming="landing"
+suites_incoming="landing laboratory"
 queues_incoming=""
 
 TMPDIR=${base}/tmp
