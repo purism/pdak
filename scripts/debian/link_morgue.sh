@@ -83,10 +83,11 @@ PROGRAM="link_morgue"
 
 cd "${PROCESSDIR}"
 log "Processing ${PROCESSDIR}"
-find ${PROCESSDIR} -type f |
+find ${PROCESSDIR} -name "*.nosnapshot" -prune -o -type f -print |
 while read mfile; do
     if [[ -e ${mfile}.nosnapshot ]]; then
         # We know this file does not exist on snapshot, don't check again
+        # Also ignore .nobackup files
         continue
     fi
 

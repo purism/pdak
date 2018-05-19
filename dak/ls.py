@@ -33,7 +33,6 @@ Display information about package(s) (suite, version, etc.)
 
 from __future__ import print_function
 
-import os
 import sys
 import apt_pkg
 
@@ -80,8 +79,9 @@ def main ():
     for i in [ "architecture", "binarytype", "component", "format",
                "greaterorequal", "greaterthan", "regex", "suite",
                "source-and-binary", "help" ]:
-        if not cnf.has_key("Ls::Options::%s" % (i)):
-            cnf["Ls::Options::%s" % (i)] = ""
+        key = "Ls::Options::%s" % i
+        if key not in cnf:
+            cnf[key] = ""
 
     packages = apt_pkg.parse_commandline(cnf.Cnf, Arguments, sys.argv)
     Options = cnf.subtree("Ls::Options")
@@ -90,10 +90,6 @@ def main ():
         usage()
     if not packages:
         utils.fubar("need at least one package name as an argument.")
-
-    # If cron.daily is running; warn the user that our output might seem strange
-    if os.path.exists(os.path.join(cnf["Dir::Lock"], "daily.lock")):
-        utils.warn("Archive maintenance is in progress; database inconsistencies are possible.")
 
     # Handle buildd maintenance helper options
     if Options["GreaterOrEqual"] or Options["GreaterThan"]:

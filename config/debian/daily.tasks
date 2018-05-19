@@ -1,4 +1,5 @@
 # FUNC                      ARGS                       TIME                       ERR     BG
+INCLUDE                     lock                       none                       true    false
 wnppbugs                    none                       none                       false   false
 pushfilesdb                 none                       none                       false   false
 wbdump                      none                       none                       false   false

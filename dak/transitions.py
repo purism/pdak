@@ -73,8 +73,9 @@ def init():
                  ('n',"no-action","Edit-Transitions::Options::No-Action")]
 
     for i in ["automatic", "help", "no-action", "edit", "import", "check", "sudo"]:
-        if not Cnf.has_key("Edit-Transitions::Options::%s" % (i)):
-            Cnf["Edit-Transitions::Options::%s" % (i)] = ""
+        key = "Edit-Transitions::Options::%s" % i
+        if key not in Cnf:
+            Cnf[key] = ""
 
     apt_pkg.parse_commandline(Cnf, Arguments, sys.argv)
 
@@ -223,10 +224,10 @@ def lock_file(f):
     for retry in range(10):
         lock_fd = os.open(f, os.O_RDWR | os.O_CREAT)
         try:
-            fcntl.lockf(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return lock_fd
         except OSError as e:
-            if errno.errorcode[e.errno] == 'EACCES' or errno.errorcode[e.errno] == 'EEXIST':
+            if e.errno in (errno.EACCES, errno.EEXIST):
                 print "Unable to get lock for %s (try %d of 10)" % \
                         (file, retry+1)
                 time.sleep(60)
@@ -465,7 +466,7 @@ def check_transitions(transitions):
                 print "Sending notification to %s" % subst['__TRANSITION_EMAIL__']
                 subst['__DAK_ADDRESS__'] = Cnf["Dinstall::MyEmailAddress"]
                 subst['__BCC__'] = 'X-DAK: dak transitions'
-                if Cnf.has_key("Dinstall::Bcc"):
+                if "Dinstall::Bcc" in Cnf:
                     subst["__BCC__"] += '\nBcc: %s' % Cnf["Dinstall::Bcc"]
                 message = utils.TemplateSubst(subst,
                                               os.path.join(Cnf["Dir::Templates"], 'transition.removed'))

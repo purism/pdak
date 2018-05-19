@@ -69,7 +69,7 @@ def parse_changes(fname):
     m = Changes(open(fname))
 
     wanted_fields = set(['Source', 'Version', 'Architecture', 'Distribution',
-                         'Date', 'Maintainer', 'Description', 'Changes'])
+                         'Date', 'Changed-By', 'Description', 'Changes'])
 
     if not set(m.keys()).issuperset(wanted_fields):
         return None
@@ -100,7 +100,7 @@ def parse_leave_reason(fname):
 
     Return a dictionary {filename: reason}"""
 
-    reason_re = re.compile(".+\|process-new\|.+\|NEW (ACCEPT|REJECT): (\S+)")
+    reason_re = re.compile(".+\|process-new\|(.+)\|NEW (ACCEPT|REJECT)\|(\S+)")
 
     try:
         f = open(fname)
@@ -112,7 +112,7 @@ def parse_leave_reason(fname):
     for l in f.readlines():
         m = reason_re.search(l)
         if m:
-            res[m.group(2)] = m.group(1)
+            res[m.group(3)] = (m.group(2), m.group(1))
 
     f.close()
     return res
@@ -124,9 +124,9 @@ def add_rss_item(status, msg, direction):
         pubdate = msg['Date']
     elif direction == "out":
         feed = status.feed_out
-        if msg.has_key('Leave-Reason'):
+        if 'Leave-Reason' in msg:
             title = "%s %s left NEW (%s)" % (msg['Source'], msg['Version'],
-                                             msg['Leave-Reason'])
+                                             msg['Leave-Reason'][0])
         else:
             title = "%s %s left NEW" % (msg['Source'], msg['Version'])
 
@@ -143,8 +143,11 @@ def add_rss_item(status, msg, direction):
             (msg['Source'], msg['Version'])
     guid = msg['Checksums-Sha256'][0]['sha256']
 
-    maintainer = parseaddr(msg['Maintainer'])
-    author = "%s (%s)" % (maintainer[1], maintainer[0])
+    if 'Processed-By' in msg:
+        author = msg['Processed-By']
+    else:
+        changedby = parseaddr(msg['Changed-By'])
+        author = "%s (%s)" % (changedby[1], changedby[0])
 
     feed.items.insert(0,
         PyRSS2Gen.RSSItem(
@@ -166,17 +169,18 @@ def update_feeds(curqueue, status, settings):
     reason_log = os.path.join(settings.logdir, time.strftime("%Y-%m"))
 
     for (name, parsed) in curqueue.items():
-        if not status.queue.has_key(name):
+        if name not in status.queue:
             # new package
             add_rss_item(status, parsed, "in")
 
     for (name, parsed) in status.queue.items():
-        if not curqueue.has_key(name):
+        if name not in curqueue:
             # removed package, try to find out why
             if leave_reason is None:
                 leave_reason = parse_leave_reason(reason_log)
-            if leave_reason and leave_reason.has_key(name):
-                parsed['Leave-Reason'] = leave_reason[name]
+            if leave_reason and name in leave_reason:
+                parsed['Leave-Reason'] = leave_reason[name][0]
+                parsed['Processed-By'] = leave_reason[name][1] + "@debian.org"
             add_rss_item(status, parsed, "out")
 
 
@@ -216,7 +220,7 @@ if __name__ == "__main__":
         status.feed_in.write_xml(file(feed_in_file, "w+"), "utf-8")
         status.feed_out.write_xml(file(feed_out_file, "w+"), "utf-8")
     except IOError as why:
-        sys.stderr.write("Unable to write feeds: %s\n", why)
+        sys.stderr.write("Unable to write feeds: %s\n" % why)
         sys.exit(1)
 
     status.queue = current_queue
@@ -224,7 +228,7 @@ if __name__ == "__main__":
     try:
         cPickle.dump(status, open(status_db, "w+"))
     except IOError as why:
-        sys.stderr.write("Unable to save status: %s\n", why)
+        sys.stderr.write("Unable to save status: %s\n" % why)
         sys.exit(1)
 
 # vim:et:ts=4

@@ -216,7 +216,7 @@ def parse_deb822(armored_contents, signing_rules=0, keyrings=None, session=None)
 
     changes["filecontents"] = armored_contents
 
-    if changes.has_key("source"):
+    if "source" in changes:
         # Strip the source version in brackets from the source field,
         # put it in the "source-version" field instead.
         srcver = re_srchasver.search(changes["source"])
@@ -269,7 +269,7 @@ def parse_changes(filename, signing_rules=0, dsc_file=0, keyrings=None):
 
         missingfields=[]
         for keyword in must_keywords:
-            if not changes.has_key(keyword.lower()):
+            if keyword.lower() not in changes:
                 missingfields.append(keyword)
 
                 if len(missingfields):
@@ -366,7 +366,7 @@ def build_file_list(changes, is_a_dsc=0, field="files", hashname="md5sum"):
     files = {}
 
     # Make sure we have a Files: field to parse...
-    if not changes.has_key(field):
+    if field not in changes:
         raise NoFilesFieldError
 
     # Validate .changes Format: field
@@ -423,7 +423,7 @@ def send_mail (message, filename="", whitelists=None):
             print >>fh, message,
 
     # Check whether we're supposed to be sending mail
-    if Cnf.has_key("Dinstall::Options::No-Mail") and Cnf["Dinstall::Options::No-Mail"]:
+    if "Dinstall::Options::No-Mail" in Cnf and Cnf["Dinstall::Options::No-Mail"]:
         return
 
     # If we've been passed a string dump it into a temporary file
@@ -476,10 +476,10 @@ def send_mail (message, filename="", whitelists=None):
                     message_raw.replace_header(field, ', '.join(match))
 
         # Change message fields in order if we don't have a To header
-        if not message_raw.has_key("To"):
+        if "To" not in message_raw:
             fields.reverse()
             for field in fields:
-                if message_raw.has_key(field):
+                if field in message_raw:
                     message_raw[fields[-1]] = message_raw[field]
                     del message_raw[field]
                     break
@@ -1030,43 +1030,6 @@ def parse_wnpp_bug_file(file = "/srv/ftp-master.debian.org/scripts/masterfiles/w
 
 ################################################################################
 
-def get_packages_from_ftp(root, suite, component, architecture):
-    """
-    Returns an object containing apt_pkg-parseable data collected by
-    aggregating Packages.gz files gathered for each architecture.
-
-    @type root: string
-    @param root: path to ftp archive root directory
-
-    @type suite: string
-    @param suite: suite to extract files from
-
-    @type component: string
-    @param component: component to extract files from
-
-    @type architecture: string
-    @param architecture: architecture to extract files from
-
-    @rtype: TagFile
-    @return: apt_pkg class containing package data
-    """
-    filename = "%s/dists/%s/%s/binary-%s/Packages.gz" % (root, suite, component, architecture)
-    (fd, temp_file) = temp_filename()
-    (result, output) = commands.getstatusoutput("gunzip -c %s > %s" % (filename, temp_file))
-    if (result != 0):
-        fubar("Gunzip invocation failed!\n%s\n" % (output), result)
-    filename = "%s/dists/%s/%s/debian-installer/binary-%s/Packages.gz" % (root, suite, component, architecture)
-    if os.path.exists(filename):
-        (result, output) = commands.getstatusoutput("gunzip -c %s >> %s" % (filename, temp_file))
-        if (result != 0):
-            fubar("Gunzip invocation failed!\n%s\n" % (output), result)
-    packages = open_file(temp_file)
-    Packages = apt_pkg.TagFile(packages)
-    os.unlink(temp_file)
-    return Packages
-
-################################################################################
-
 def deb_extract_control(fh):
     """extract DEBIAN/control from a binary package"""
     return apt_inst.DebFile(fh).control.extractdata("control")
@@ -1188,7 +1151,10 @@ def check_reverse_depends(removals, suite, arches=None, session=None, cruft=Fals
         deps = {}
         sources = {}
         virtual_packages = {}
-        params['arch_id'] = get_architecture(architecture, session).arch_id
+        try:
+            params['arch_id'] = get_architecture(architecture, session).arch_id
+        except AttributeError:
+            continue
 
         statement = sql.text('''
             SELECT b.package, s.source, c.name as component,
@@ -1217,7 +1183,7 @@ def check_reverse_depends(removals, suite, arches=None, session=None, cruft=Fals
                 for virtual_pkg in provides.split(","):
                     virtual_pkg = virtual_pkg.strip()
                     if virtual_pkg == package: continue
-                    if not virtual_packages.has_key(virtual_pkg):
+                    if virtual_pkg not in virtual_packages:
                         virtual_packages[virtual_pkg] = 0
                     if package not in removals:
                         virtual_packages[virtual_pkg] += 1
@@ -1385,3 +1351,25 @@ def is_in_debug_section(control):
     section = control['Section'].split('/', 1)[-1]
     auto_built_package = control.get("Auto-Built-Package")
     return section == "debug" and auto_built_package == "debug-symbols"
+
+################################################################################
+
+def find_possibly_compressed_file(filename):
+    """
+
+    @type  filename: string
+    @param filename: path to a control file (Sources, Packages, etc) to
+                     look for
+
+    @rtype string
+    @return: path to the (possibly compressed) control file, or null if the
+             file doesn't exist
+    """
+    _compressions = ('', '.xz', '.gz', '.bz2')
+
+    for ext in _compressions:
+        _file = filename + ext
+        if os.path.exists(_file):
+            return _file
+
+    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), filename)

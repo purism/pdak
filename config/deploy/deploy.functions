@@ -1,0 +1,61 @@
+# -*- mode:sh -*-
+
+function fetch_updates() {
+    cd ${masterdir}/
+    local beforefetch=$(git rev-parse HEAD)
+    git fetch origin
+    local afterfetch=$(git rev-parse origin/deploy)
+    if [[ ${beforefetch} == ${afterfetch} ]]; then
+        exit 0
+    fi
+}
+
+function find_commitids() {
+    cd ${masterdir}
+    OLDHEAD=$(git rev-parse HEAD)
+    NEWHEAD=$(git rev-parse origin/deploy)
+}
+
+function check_commit_signature() {
+    cd ${masterdir}
+    git config --local gpg.program "${scriptsdir}/gpgverify"
+    if ! SIGNKEY=$(git verify-commit --raw ${NEWHEAD} 2>&1 | awk '/VALIDSIG/ {print $NF}'); then
+        log_error "{NEWHEAD} is not signed correctly"
+        exit 3
+    fi
+    if [[ -z ${DEPLOY_KEYS[${SIGNKEY}]} ]]; then
+        log_error "{NEWHEAD} signed by ${SIGNKEY} which is not allowed to deploy code"
+        exit 4
+    fi
+}
+
+function check_for_db_update() {
+    # Check: Do we have a DB Upgrade?
+    if [[ -n ${NEEDDB} ]]; then
+        NEWDBVER=$(GIT_DIR=${masterdir}/.git git ls-tree origin/deploy dak/dakdb/|grep -v '__init__.py'|sort -V -k 4|tail -n 1)
+        NEWDBVER=${NEWDBVER##*update}
+        declare -r NEWDBVER=${NEWDBVER%%.py}
+    fi
+
+    if [[ ${OLDDBVER} -ne ${NEWDBVER} ]] && [[ -z ${FORCETHISDAMNUPGRADEIKNOWWHATIDOIHOPE:-""} ]]; then
+        # Differing versions and no FORCETHISDAMNUPGRADEIKNOWWHATIDOIHOPE variable, break
+        log_error "Database update from ${OLDDBVER} to ${NEWDBVER} required, will not update dak code on ${HOSTNAME} unless told with FORCETHISDAMNUPGRADEIKNOWWHATIDOIHOPE=1 in the environment"
+        exit 21
+    fi
+}
+
+function check_ancestor() {
+    cd ${masterdir}
+    if ! git merge-base --is-ancestor ${OLDHEAD} ${NEWHEAD}; then
+        log_error "Running code HEAD ${OLDHEAD} is not an ancestor of newly-to-deploy HEAD ${NEWHEAD}, refusing to update"
+        exit 2
+    fi
+}
+
+function update_masterdir() {
+    cd ${masterdir}
+    # We do not want local changes
+    git stash save --include-untracked --all "Update for commitid ${NEWHEAD}"
+    # And switch to the commit we just verified
+    git checkout ${NEWHEAD}
+}

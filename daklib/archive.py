@@ -22,6 +22,7 @@ This module provides classes to manipulate the archive.
 from daklib.dbconn import *
 import daklib.checks as checks
 from daklib.config import Config
+from daklib.externalsignature import check_upload_for_external_signature_request
 import daklib.upload as upload
 import daklib.utils as utils
 from daklib.fstransactions import FilesystemTransaction
@@ -741,26 +742,34 @@ class ArchiveUpload(object):
         return sourcedir
 
     def _map_suite(self, suite_name):
+        suite_names = set((suite_name, ))
         for rule in Config().value_list("SuiteMappings"):
             fields = rule.split()
             rtype = fields[0]
             if rtype == "map" or rtype == "silent-map":
                 (src, dst) = fields[1:3]
-                if src == suite_name:
-                    suite_name = dst
+                if src in suite_names:
+                    suite_names.remove(src)
+                    suite_names.add(dst)
                     if rtype != "silent-map":
                         self.warnings.append('Mapping {0} to {1}.'.format(src, dst))
+            elif rtype == "copy" or rtype == "silent-copy":
+                (src, dst) = fields[1:3]
+                if src in suite_names:
+                    suite_names.add(dst)
+                    if rtype != "silent-copy":
+                        self.warnings.append('Copy {0} to {1}.'.format(src, dst))
             elif rtype == "ignore":
                 ignored = fields[1]
-                if suite_name == ignored:
+                if ignored in suite_names:
+                    suite_names.remove(ignored)
                     self.warnings.append('Ignoring target suite {0}.'.format(ignored))
-                    suite_name = None
             elif rtype == "reject":
                 rejected = fields[1]
-                if suite_name == rejected:
+                if rejected in suite_names:
                     raise checks.Reject('Uploads to {0} are not accepted.'.format(rejected))
             ## XXX: propup-version and map-unreleased not yet implemented
-        return suite_name
+        return suite_names
 
     def _mapped_suites(self):
         """Get target suites after mappings
@@ -770,11 +779,9 @@ class ArchiveUpload(object):
         """
         session = self.session
 
-        suite_names = []
+        suite_names = set()
         for dist in self.changes.distributions:
-            suite_name = self._map_suite(dist)
-            if suite_name is not None:
-                suite_names.append(suite_name)
+            suite_names.update(self._map_suite(dist))
 
         suites = session.query(Suite).filter(Suite.suite_name.in_(suite_names))
         return suites
@@ -817,7 +824,7 @@ class ArchiveUpload(object):
         tainted archive (eg. when it references files in NEW).
 
         Debug packages (*-dbgsym in Section: debug) are not considered as NEW
-        if C{suite} has a seperate debug suite.
+        if C{suite} has a separate debug suite.
 
         @rtype:  bool
         @return: C{True} if the upload is NEW, C{False} otherwise
@@ -945,6 +952,29 @@ class ArchiveUpload(object):
             return None
         return get_mapped_component(binary.component, self.session)
 
+    def _source_component(self, suite, source, only_overrides=True):
+        """get component for a source
+
+        By default this will only look at overrides to get the right component;
+        if C{only_overrides} is C{False} this method will also look at the
+        Section field.
+
+        @type  suite: L{daklib.dbconn.Suite}
+
+        @type  binary: L{daklib.upload.Binary}
+
+        @type  only_overrides: bool
+        @param only_overrides: only use overrides to get the right component
+
+        @rtype: L{daklib.dbconn.Component} or C{None}
+        """
+        override = self._source_override(suite, source)
+        if override is not None:
+            return override.component
+        if only_overrides:
+            return None
+        return get_mapped_component(source.component, self.session)
+
     def check(self, force=False):
         """run checks against the upload
 
@@ -1010,8 +1040,11 @@ class ArchiveUpload(object):
             self.reject_reasons.append("Processing raised an exception: {0}.\n{1}".format(e, traceback.format_exc()))
         return False
 
-    def _install_to_suite(self, suite, source_component_func, binary_component_func, source_suites=None, extra_source_archives=None):
+    def _install_to_suite(self, target_suite, suite, source_component_func, binary_component_func, source_suites=None, extra_source_archives=None, new_upload=False):
         """Install upload to the given suite
+
+        @type  target_suite: L{daklib.dbconn.Suite}
+        @param target_suite: target suite (before redirection to policy queue or NEW)
 
         @type  suite: L{daklib.dbconn.Suite}
         @param suite: suite to install the package into. This is the real suite,
@@ -1071,6 +1104,9 @@ class ArchiveUpload(object):
                 extra_source_archives=extra_source_archives
             )
             db_binaries.append(db_binary)
+
+            if not new_upload:
+                check_upload_for_external_signature_request(self.session, target_suite, copy_to_suite, db_binary)
 
         if suite.copychanges:
             src = os.path.join(self.directory, self.changes.filename)
@@ -1298,10 +1334,10 @@ class ArchiveUpload(object):
 
             source_suites = self.session.query(Suite).filter(Suite.suite_id.in_(source_suite_ids)).subquery()
 
-            source_component_func = lambda source: self._source_override(overridesuite, source).component
+            source_component_func = lambda source: self._source_component(overridesuite, source, only_overrides=False)
             binary_component_func = lambda binary: self._binary_component(overridesuite, binary, only_overrides=False)
 
-            (db_source, db_binaries) = self._install_to_suite(redirected_suite, source_component_func, binary_component_func, source_suites=source_suites, extra_source_archives=[suite.archive])
+            (db_source, db_binaries) = self._install_to_suite(suite, redirected_suite, source_component_func, binary_component_func, source_suites=source_suites, extra_source_archives=[suite.archive])
 
             if policy_queue is not None:
                 self._install_policy(policy_queue, suite, db_changes, db_source, db_binaries)
@@ -1309,7 +1345,7 @@ class ArchiveUpload(object):
             # copy to build queues
             if policy_queue is None or policy_queue.send_to_build_queues:
                 for build_queue in suite.copy_queues:
-                    self._install_to_suite(build_queue.suite, source_component_func, binary_component_func, source_suites=source_suites, extra_source_archives=[suite.archive])
+                    self._install_to_suite(suite, build_queue.suite, source_component_func, binary_component_func, source_suites=source_suites, extra_source_archives=[suite.archive])
 
         self._do_bts_versiontracking()
 
@@ -1368,7 +1404,7 @@ class ArchiveUpload(object):
         source_component_func = lambda source: source_component
 
         db_changes = self._install_changes()
-        (db_source, db_binaries) = self._install_to_suite(new_suite, source_component_func, binary_component_func, source_suites=True, extra_source_archives=[suite.archive])
+        (db_source, db_binaries) = self._install_to_suite(suite, new_suite, source_component_func, binary_component_func, source_suites=True, extra_source_archives=[suite.archive], new_upload=True)
         policy_upload = self._install_policy(new_queue, suite, db_changes, db_source, db_binaries)
 
         for f in byhand:

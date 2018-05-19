@@ -68,7 +68,7 @@ Check for obsolete or duplicated packages.
 
 def add_nbs(nbs_d, source, version, package, suite_id, session):
     # Ensure the package is still in the suite (someone may have already removed it)
-    if no_longer_in_suite.has_key(package):
+    if package in no_longer_in_suite:
         return
     else:
         q = session.execute("""SELECT b.id FROM binaries b, bin_associations ba
@@ -105,7 +105,7 @@ def do_anais(architecture, binaries_list, source, session):
         for i in ql:
             arch = i[0]
             version = i[1]
-            if architectures.has_key(arch):
+            if arch in architectures:
                 versions.append(version)
         versions.sort(apt_pkg.version_compare)
         if versions:
@@ -117,7 +117,7 @@ def do_anais(architecture, binaries_list, source, session):
         for i in ql:
             arch = i[0]
             version = i[1]
-            if not architectures.has_key(arch):
+            if arch not in architectures:
                 versions_d.setdefault(version, [])
                 versions_d[version].append(arch)
 
@@ -508,15 +508,16 @@ def main ():
                  ('s',"suite","Cruft-Report::Options::Suite","HasArg"),
                  ('w',"wanna-build-dump","Cruft-Report::Options::Wanna-Build-Dump","HasArg")]
     for i in [ "help", "Rdep-Check" ]:
-        if not cnf.has_key("Cruft-Report::Options::%s" % (i)):
-            cnf["Cruft-Report::Options::%s" % (i)] = ""
+        key = "Cruft-Report::Options::%s" % i
+        if key not in cnf:
+            cnf[key] = ""
 
     cnf["Cruft-Report::Options::Suite"] = cnf.get("Dinstall::DefaultSuite", "unstable")
 
-    if not cnf.has_key("Cruft-Report::Options::Mode"):
+    if "Cruft-Report::Options::Mode" not in cnf:
         cnf["Cruft-Report::Options::Mode"] = "daily"
 
-    if not cnf.has_key("Cruft-Report::Options::Wanna-Build-Dump"):
+    if "Cruft-Report::Options::Wanna-Build-Dump" not in cnf:
         cnf["Cruft-Report::Options::Wanna-Build-Dump"] = "/srv/ftp-master.debian.org/scripts/nfu"
 
     apt_pkg.parse_commandline(cnf.Cnf, Arguments, sys.argv)
@@ -578,42 +579,33 @@ def main ():
     # Checks based on the Sources files
     components = get_component_names(session)
     for component in components:
-        filename = "%s/dists/%s/%s/source/Sources.gz" % (suite.archive.path, suite_name, component)
-        # apt_pkg.TagFile needs a real file handle and can't handle a GzipFile instance...
-        (fd, temp_filename) = utils.temp_filename()
-        (result, output) = commands.getstatusoutput("gunzip -c %s > %s" % (filename, temp_filename))
-        if (result != 0):
-            sys.stderr.write("Gunzip invocation failed!\n%s\n" % (output))
-            sys.exit(result)
-        sources = utils.open_file(temp_filename)
-        Sources = apt_pkg.TagFile(sources)
-        while Sources.step():
-            source = Sources.section.find('Package')
-            source_version = Sources.section.find('Version')
-            architecture = Sources.section.find('Architecture')
-            binaries = Sources.section.find('Binary')
-            binaries_list = [ i.strip() for i in  binaries.split(',') ]
+        filename = "%s/dists/%s/%s/source/Sources" % (suite.archive.path, suite_name, component)
+        filename = utils.find_possibly_compressed_file(filename)
+        with apt_pkg.TagFile(filename) as Sources:
+            while Sources.step():
+                source = Sources.section.find('Package')
+                source_version = Sources.section.find('Version')
+                architecture = Sources.section.find('Architecture')
+                binaries = Sources.section.find('Binary')
+                binaries_list = [ i.strip() for i in  binaries.split(',') ]
 
-            if "bnb" in checks:
-                # Check for binaries not built on any architecture.
+                if "bnb" in checks:
+                    # Check for binaries not built on any architecture.
+                    for binary in binaries_list:
+                        if binary not in bins_in_suite:
+                            bin_not_built.setdefault(source, {})
+                            bin_not_built[source][binary] = ""
+
+                if "anais" in checks:
+                    anais_output += do_anais(architecture, binaries_list, source, session)
+
+                # build indices for checking "no source" later
+                source_index = component + '/' + source
+                src_pkgs[source] = source_index
                 for binary in binaries_list:
-                    if not bins_in_suite.has_key(binary):
-                        bin_not_built.setdefault(source, {})
-                        bin_not_built[source][binary] = ""
-
-            if "anais" in checks:
-                anais_output += do_anais(architecture, binaries_list, source, session)
-
-            # build indices for checking "no source" later
-            source_index = component + '/' + source
-            src_pkgs[source] = source_index
-            for binary in binaries_list:
-                bin_pkgs[binary] = source
-            source_binaries[source] = binaries
-            source_versions[source] = source_version
-
-        sources.close()
-        os.unlink(temp_filename)
+                    bin_pkgs[binary] = source
+                source_binaries[source] = binaries
+                source_versions[source] = source_version
 
     # Checks based on the Packages files
     check_components = components[:]
@@ -627,50 +619,41 @@ def main ():
         for architecture in architectures:
             if component == 'main/debian-installer' and re.match("kfreebsd", architecture):
                 continue
-            filename = "%s/dists/%s/%s/binary-%s/Packages.gz" % (suite.archive.path, suite_name, component, architecture)
-            # apt_pkg.TagFile needs a real file handle
-            (fd, temp_filename) = utils.temp_filename()
-            (result, output) = commands.getstatusoutput("gunzip -c %s > %s" % (filename, temp_filename))
-            if (result != 0):
-                sys.stderr.write("Gunzip invocation failed!\n%s\n" % (output))
-                sys.exit(result)
 
             if "nfu" in checks:
                 nfu_packages.setdefault(architecture,[])
                 nfu_entries = parse_nfu(architecture)
 
-            packages = utils.open_file(temp_filename)
-            Packages = apt_pkg.TagFile(packages)
-            while Packages.step():
-                package = Packages.section.find('Package')
-                source = Packages.section.find('Source', "")
-                version = Packages.section.find('Version')
-                if source == "":
-                    source = package
-                if bin2source.has_key(package) and \
-                       apt_pkg.version_compare(version, bin2source[package]["version"]) > 0:
-                    bin2source[package]["version"] = version
-                    bin2source[package]["source"] = source
-                else:
-                    bin2source[package] = {}
-                    bin2source[package]["version"] = version
-                    bin2source[package]["source"] = source
-                if source.find("(") != -1:
-                    m = re_extract_src_version.match(source)
-                    source = m.group(1)
-                    version = m.group(2)
-                if not bin_pkgs.has_key(package):
-                    nbs.setdefault(source,{})
-                    nbs[source].setdefault(package, {})
-                    nbs[source][package][version] = ""
-                else:
-                    if "nfu" in checks:
-                        if package in nfu_entries and \
-                               version != source_versions[source]: # only suggest to remove out-of-date packages
-                            nfu_packages[architecture].append((package,version,source_versions[source]))
-                    
-            packages.close()
-            os.unlink(temp_filename)
+            filename = "%s/dists/%s/%s/binary-%s/Packages" % (suite.archive.path, suite_name, component, architecture)
+            filename = utils.find_possibly_compressed_file(filename)
+            with apt_pkg.TagFile(filename) as Packages:
+                while Packages.step():
+                    package = Packages.section.find('Package')
+                    source = Packages.section.find('Source', "")
+                    version = Packages.section.find('Version')
+                    if source == "":
+                        source = package
+                    if package in bin2source and \
+                           apt_pkg.version_compare(version, bin2source[package]["version"]) > 0:
+                        bin2source[package]["version"] = version
+                        bin2source[package]["source"] = source
+                    else:
+                        bin2source[package] = {}
+                        bin2source[package]["version"] = version
+                        bin2source[package]["source"] = source
+                    if source.find("(") != -1:
+                        m = re_extract_src_version.match(source)
+                        source = m.group(1)
+                        version = m.group(2)
+                    if package not in bin_pkgs:
+                        nbs.setdefault(source,{})
+                        nbs[source].setdefault(package, {})
+                        nbs[source][package][version] = ""
+                    else:
+                        if "nfu" in checks:
+                            if package in nfu_entries and \
+                                   version != source_versions[source]: # only suggest to remove out-of-date packages
+                                nfu_packages[architecture].append((package,version,source_versions[source]))
 
     # Distinguish dubious (version numbers match) and 'real' NBS (they don't)
     dubious_nbs = {}

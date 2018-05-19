@@ -23,7 +23,7 @@ Output override files for apt-ftparchive and indices/
 
 ################################################################################
 
-# This is seperate because it's horribly Debian specific and I don't
+# This is separate because it's horribly Debian specific and I don't
 # want that kind of horribleness in the otherwise generic 'dak
 # make-overrides'.  It does duplicate code tho.
 
@@ -102,8 +102,9 @@ def main ():
     cnf = Config()
     Arguments = [('h',"help","Make-Overrides::Options::Help")]
     for i in [ "help" ]:
-        if not cnf.has_key("Make-Overrides::Options::%s" % (i)):
-            cnf["Make-Overrides::Options::%s" % (i)] = ""
+        key = "Make-Overrides::Options::%s" % i
+        if key not in cnf:
+            cnf[key] = ""
     apt_pkg.parse_commandline(cnf.Cnf, Arguments, sys.argv)
     Options = cnf.subtree("Make-Overrides::Options")
     if Options["Help"]:

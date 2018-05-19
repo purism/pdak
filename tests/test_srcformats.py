@@ -4,7 +4,6 @@ from base_test import DakTestCase
 
 from daklib import srcformats
 from collections import defaultdict
-from daklib.formats import parse_format
 from daklib.dak_exceptions import UnknownFormatError
 
 class SourceFormatTestCase(DakTestCase):
@@ -55,12 +54,6 @@ class FormatOneTestCase(SourceFormatTestCase):
             'native_tar': 1,
             'native_tar_gz': 1,
             'debian_diff': 1,
-        })
-        self.assertRejected({
-            'orig_tar': 1,
-            'orig_tar_gz': 1,
-            'debian_diff': 1,
-            'orig_tar_sig': 1,
         })
 
 class FormatTreeTestCase(SourceFormatTestCase):

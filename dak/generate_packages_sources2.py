@@ -41,7 +41,7 @@ Generate the Packages/Sources files
                                CAREFUL: Only to be used at point release time!
   -h, --help                   show this help and exit
 
-SUITE can be a space seperated list, e.g.
+SUITE can be a space separated list, e.g.
    --suite=unstable testing
 """
     sys.exit()
@@ -367,7 +367,7 @@ def main():
     except KeyError:
         Options = {}
 
-    if Options.has_key("Help"):
+    if "Help" in Options:
         usage()
 
     from daklib.dakmultiprocessing import DakProcessPool, PROC_STATUS_SUCCESS, PROC_STATUS_SIGNALRAISED
@@ -382,7 +382,7 @@ def main():
 
     import daklib.utils
 
-    if Options.has_key("Suite"):
+    if "Suite" in Options:
         suites = []
         suite_names = daklib.utils.split_args(Options['Suite'])
         for s in suite_names:
@@ -399,7 +399,7 @@ def main():
             query = query.join(Suite.archive).filter(Archive.archive_name.in_(archive_names))
         suites = query.all()
 
-    force = Options.has_key("Force") and Options["Force"]
+    force = "Force" in Options and Options["Force"]
 
 
     def parse_results(message):

@@ -98,7 +98,7 @@ def process_dir (unused, dirname, filenames):
         return
     for name in filenames:
         filename = os.path.abspath(os.path.join(dirname,name))
-        if os.path.isfile(filename) and not os.path.islink(filename) and not db_files.has_key(filename) and not excluded.has_key(filename):
+        if os.path.isfile(filename) and not os.path.islink(filename) and filename not in db_files and filename not in excluded:
             waste += os.stat(filename)[stat.ST_SIZE]
             print "%s" % (filename)
 
@@ -381,40 +381,32 @@ def validate_sources(suite, component):
     """
     Ensure files mentioned in Sources exist
     """
-    filename = "%s/dists/%s/%s/source/Sources.gz" % (Cnf["Dir::Root"], suite, component)
+    filename = "%s/dists/%s/%s/source/Sources" % (Cnf["Dir::Root"], suite, component)
+    filename = utils.find_possibly_compressed_file(filename)
     print "Processing %s..." % (filename)
-    # apt_pkg.TagFile needs a real file handle and can't handle a GzipFile instance...
-    (fd, temp_filename) = utils.temp_filename()
-    (result, output) = commands.getstatusoutput("gunzip -c %s > %s" % (filename, temp_filename))
-    if (result != 0):
-        sys.stderr.write("Gunzip invocation failed!\n%s\n" % (output))
-        sys.exit(result)
-    sources = utils.open_file(temp_filename)
-    Sources = apt_pkg.TagFile(sources)
-    while Sources.step():
-        source = Sources.section.find('Package')
-        directory = Sources.section.find('Directory')
-        files = Sources.section.find('Files')
-        for i in files.split('\n'):
-            (md5, size, name) = i.split()
-            filename = "%s/%s/%s" % (Cnf["Dir::Root"], directory, name)
-            if not os.path.exists(filename):
-                if directory.find("potato") == -1:
-                    print "W: %s missing." % (filename)
-                else:
-                    pool_location = utils.poolify(source)
-                    pool_filename = "%s/%s/%s" % (Cnf["Dir::Pool"], pool_location, name)
-                    if not os.path.exists(pool_filename):
-                        print "E: %s missing (%s)." % (filename, pool_filename)
+    with apt_pkg.TagFile(filename) as Sources:
+        while Sources.step():
+            source = Sources.section.find('Package')
+            directory = Sources.section.find('Directory')
+            files = Sources.section.find('Files')
+            for i in files.split('\n'):
+                (md5, size, name) = i.split()
+                filename = "%s/%s/%s" % (Cnf["Dir::Root"], directory, name)
+                if not os.path.exists(filename):
+                    if directory.find("potato") == -1:
+                        print "W: %s missing." % (filename)
                     else:
-                        # Create symlink
-                        pool_filename = os.path.normpath(pool_filename)
-                        filename = os.path.normpath(filename)
-                        src = utils.clean_symlink(pool_filename, filename, Cnf["Dir::Root"])
-                        print "Symlinking: %s -> %s" % (filename, src)
-                        #os.symlink(src, filename)
-    sources.close()
-    os.unlink(temp_filename)
+                        pool_location = utils.poolify(source)
+                        pool_filename = "%s/%s/%s" % (Cnf["Dir::Pool"], pool_location, name)
+                        if not os.path.exists(pool_filename):
+                            print "E: %s missing (%s)." % (filename, pool_filename)
+                        else:
+                            # Create symlink
+                            pool_filename = os.path.normpath(pool_filename)
+                            filename = os.path.normpath(filename)
+                            src = utils.clean_symlink(pool_filename, filename, Cnf["Dir::Root"])
+                            print "Symlinking: %s -> %s" % (filename, src)
+                            #os.symlink(src, filename)
 
 ########################################
 
@@ -422,23 +414,15 @@ def validate_packages(suite, component, architecture):
     """
     Ensure files mentioned in Packages exist
     """
-    filename = "%s/dists/%s/%s/binary-%s/Packages.gz" \
+    filename = "%s/dists/%s/%s/binary-%s/Packages" \
                % (Cnf["Dir::Root"], suite, component, architecture)
+    filename = utils.find_possibly_compressed_file(filename)
     print "Processing %s..." % (filename)
-    # apt_pkg.TagFile needs a real file handle and can't handle a GzipFile instance...
-    (fd, temp_filename) = utils.temp_filename()
-    (result, output) = commands.getstatusoutput("gunzip -c %s > %s" % (filename, temp_filename))
-    if (result != 0):
-        sys.stderr.write("Gunzip invocation failed!\n%s\n" % (output))
-        sys.exit(result)
-    packages = utils.open_file(temp_filename)
-    Packages = apt_pkg.TagFile(packages)
-    while Packages.step():
-        filename = "%s/%s" % (Cnf["Dir::Root"], Packages.section.find('Filename'))
-        if not os.path.exists(filename):
-            print "W: %s missing." % (filename)
-    packages.close()
-    os.unlink(temp_filename)
+    with apt_pkg.TagFile(filename) as Packages:
+        while Packages.step():
+            filename = "%s/%s" % (Cnf["Dir::Root"], Packages.section.find('Filename'))
+            if not os.path.exists(filename):
+                print "W: %s missing." % (filename)
 
 ########################################
 
@@ -548,8 +532,9 @@ def main ():
 
     Arguments = [('h',"help","Check-Archive::Options::Help")]
     for i in [ "help" ]:
-        if not cnf.has_key("Check-Archive::Options::%s" % (i)):
-            cnf["Check-Archive::Options::%s" % (i)] = ""
+        key = "Check-Archive::Options::%s" % i
+        if key not in cnf:
+            cnf[key] = ""
 
     args = apt_pkg.parse_commandline(cnf.Cnf, Arguments, sys.argv)
 

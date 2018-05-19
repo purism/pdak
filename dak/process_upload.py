@@ -161,7 +161,6 @@ Checks Debian packages from Incoming
 
 import datetime
 import errno
-from errno import EACCES, EAGAIN
 import fcntl
 import os
 import sys
@@ -265,15 +264,16 @@ def accept(directory, upload):
     upload.install()
     process_buildinfos(upload)
 
-    accepted_to_real_suite = False
-    for suite in upload.final_suites:
-        accepted_to_real_suite = accepted_to_real_suite or suite.policy_queue is None
-
+    accepted_to_real_suite = any(suite.policy_queue is None for suite in upload.final_suites)
     sourceful_upload = 'source' in upload.changes.architectures
 
     control = upload.changes.changes
     if sourceful_upload and not Options['No-Action']:
         urgency = control.get('Urgency')
+        # As per policy 5.6.17, the urgency can be followed by a space and a
+        # comment.  Extract only the urgency from the string.
+        if ' ' in urgency:
+          (urgency, comment) = urgency.split(' ', 1)
         if urgency not in cnf.value_list('Urgency::Valid'):
             urgency = cnf['Urgency::Default']
         UrgencyLog().log(control['Source'], control['Version'], urgency)
@@ -497,7 +497,7 @@ def process_changes(changes_filenames):
 def process_buildinfos(upload):
     cnf = Config()
 
-    if not cnf.has_key('Dir::BuildinfoArchive'):
+    if 'Dir::BuildinfoArchive' not in cnf:
         return
 
     target_dir = os.path.join(
@@ -529,8 +529,9 @@ def main():
 
     for i in ["automatic", "help", "no-action", "no-lock", "no-mail",
               "version", "directory"]:
-        if not cnf.has_key("Dinstall::Options::%s" % (i)):
-            cnf["Dinstall::Options::%s" % (i)] = ""
+        key = "Dinstall::Options::%s" % i
+        if key not in cnf:
+            cnf[key] = ""
 
     changes_files = apt_pkg.parse_commandline(cnf.Cnf, Arguments, sys.argv)
     Options = cnf.subtree("Dinstall::Options")
@@ -542,17 +543,13 @@ def main():
     if Options["No-Action"]:
         Options["Automatic"] = ""
 
-    # Check that we aren't going to clash with the daily cron job
-    if not Options["No-Action"] and os.path.exists("%s/daily.lock" % (cnf["Dir::Lock"])) and not Options["No-Lock"]:
-        utils.fubar("Archive maintenance in progress.  Try again later.")
-
     # Obtain lock if not in no-action mode and initialize the log
     if not Options["No-Action"]:
-        lock_fd = os.open(os.path.join(cnf["Dir::Lock"], 'dinstall.lock'), os.O_RDWR | os.O_CREAT)
+        lock_fd = os.open(os.path.join(cnf["Dir::Lock"], 'process-upload.lock'), os.O_RDWR | os.O_CREAT)
         try:
-            fcntl.lockf(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except IOError as e:
-            if errno.errorcode[e.errno] == 'EACCES' or errno.errorcode[e.errno] == 'EAGAIN':
+            if e.errno in (errno.EACCES, errno.EAGAIN):
                 utils.fubar("Couldn't obtain lock; assuming another 'dak process-upload' is already running.")
             else:
                 raise

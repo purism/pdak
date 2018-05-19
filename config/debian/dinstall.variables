@@ -2,18 +2,10 @@
 # usually we are not using debug logs. Set to 1 if you want them.
 DEBUG=0
 
-# where do we want mails to go? For example log entries made with error()
-if [[ ${HOSTNAME} != franck ]] && [[ ${HOSTNAME} != fasolo ]]; then
-    # Not our ftpmaster host
-    MAILTO=${MAILTO:-"root"}
-else
-    # Yay, ftpmaster
-    MAILTO=${MAILTO:-"ftpmaster@debian.org"}
-fi
-
 # How many logfiles to keep
 LOGROTATE=${LOGROTATE:-400}
 
+# Not really a lockfile, but convenient dir
 # Marker for dinstall start
 DINSTALLSTART="${lockdir}/dinstallstart"
 # Marker for dinstall end
@@ -22,24 +14,6 @@ DINSTALLEND="${lockdir}/dinstallend"
 # Timestamp for start
 DINSTALLBEGIN="$(date -u +"%a %b %d %T %Z %Y (%s)")"
 
-# Lock cron.unchecked from doing work
-LOCK_ACCEPTED="$lockdir/unchecked.lock"
-
-# This file is simply used to indicate to britney whether or not
-# the Packages file updates completed sucessfully.  It's not a lock
-# from our point of view
-LOCK_BRITNEY="$lockdir/britney.lock"
-
-# If this file exists we exit immediately after the currently running
-# function is done
-LOCK_STOP="$lockdir/archive.stop"
-
-# Lock buildd updates
-LOCK_BUILDD="$lockdir/buildd.lock"
-
-# Lock changelog updates
-LOCK_CHANGELOG="$lockdir/changelog.lock"
-
 # Statefile for the users
 DINSTALLSTATE="${webdir}/dinstall.status"
 
@@ -47,11 +21,13 @@ DINSTALLSTATE="${webdir}/dinstall.status"
 # as thats usually testing and unstable, but we need codenames,
 # get em out of the db.
 extimportdists=""
-for suite in testing unstable; do
+if [ "${functionname}" = ftp-master.debian.org ]; then
+  for suite in testing unstable; do
     codename=$(dak admin s show ${suite}|grep '^Codename')
     codename=${codename##* }
     extimportdists="${extimportdists} ${codename}"
-done
+  done
+fi
 
 # Common wget options
 wgetopts="-t2 -T20 -q -N --ca-directory=/etc/ssl/ca-debian"

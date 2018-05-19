@@ -1,3 +1,4 @@
 # FUNC                 ARGS                       TIME                       ERR     BG
+INCLUDE                lock                       none                       true    false
 mirror                 none                       none                       true    false
 mirrorpush             none                       none                       true    false

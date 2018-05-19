@@ -32,6 +32,8 @@ import sys
 import time
 import apt_pkg
 import commands
+import errno
+import fcntl
 
 from daklib import queue
 from daklib import daklog
@@ -87,31 +89,30 @@ def sudo(arg, fn, exit):
 def do_Approve(): sudo("A", _do_Approve, True)
 def _do_Approve():
     print "Locking unchecked"
-    lockfile='/srv/security-master.debian.org/lock/unchecked.lock'
-    spawn("lockfile -r42 {0}".format(lockfile))
+    with os.fdopen(os.open('/srv/security-master.debian.org/lock/unchecked.lock', os.O_CREAT | os.O_RDWR ), 'r') as lock_fd:
+        while True:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except IOError as e:
+                if e.errno in (errno.EACCES, errno.EAGAIN):
+                    print "Another process keeping the unchecked lock, waiting."
+                    time.sleep(10)
+                else:
+                    raise
 
-    try:
         # 1. Install accepted packages
         print "Installing accepted packages into security archive"
         for queue in ("embargoed",):
             spawn("dak process-policy {0}".format(queue))
 
-        # 3. Run all the steps that are needed to publish the changed archive
-        print "Domination"
-        spawn("dak dominate")
-        print "Updating Packages and Sources files... This may take a while, be patient"
-        spawn("/srv/security-master.debian.org/dak/config/debian-security/map.sh")
-        spawn("dak generate-packages-sources2 -a security")
-        print "Updating Release files..."
-        spawn("dak generate-releases -a security")
-        print "Triggering security mirrors... (this may take a while)"
-        spawn("/srv/security-master.debian.org/dak/config/debian-security/make-mirror.sh")
-        spawn("sudo -u archvsync -H /home/archvsync/signal_security")
-        print "Triggering metadata export for packages.d.o and other consumers"
-        spawn("/srv/security-master.debian.org/dak/config/debian-security/export.sh")
-    finally:
-        os.unlink(lockfile)
-        print "Lock released."
+    # 2. Run all the steps that are needed to publish the changed archive
+    print "Doing loadsa stuff in the archive, will take time, please be patient"
+    os.environ['configdir'] = '/srv/security-master.debian.org/dak/config/debian-security'
+    spawn("/srv/security-master.debian.org/dak/config/debian-security/cronscript unchecked-dinstall")
+
+    print "Triggering metadata export for packages.d.o and other consumers"
+    spawn("/srv/security-master.debian.org/dak/config/debian-security/export.sh")
 
 ########################################################################
 ########################################################################
@@ -128,8 +129,9 @@ def main():
                  ]
 
     for i in ["Help", "No-Action", "Changesfile", "Sudo", "Approve"]:
-        if not cnf.has_key("Security::Options::%s" % (i)):
-            cnf["Security::Options::%s" % (i)] = ""
+        key = "Security::Options::%s" % i
+        if key not in cnf:
+            cnf[key] = ""
 
     changes_files = apt_pkg.parse_commandline(cnf.Cnf, Arguments, sys.argv)
 
@@ -174,7 +176,9 @@ def main():
         # strip epoch from version
         version=dbchange.version
         version=version[(version.find(':')+1):]
-        acceptfilename="%s/COMMENTS/ACCEPT.%s_%s" % (os.path.dirname(os.path.abspath(changes[0])), dbchange.source, version)
+        # strip possible version from source (binNMUs)
+        source = dbchange.source.split(None, 1)[0]
+        acceptfilename="%s/COMMENTS/ACCEPT.%s_%s" % (os.path.dirname(os.path.abspath(changes[0])), source, version)
         acceptfiles[acceptfilename]=1
 
     print "Would create %s now and then go on to accept this package, if you allow me to." % (acceptfiles.keys())

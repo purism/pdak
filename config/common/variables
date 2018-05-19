@@ -1,0 +1,85 @@
+# -*- mode:sh -*-
+
+umask 022
+unset CDPATH
+GZIP='--rsyncable --no-name' ; export GZIP
+
+export lockdir=${lockdir:-${base}/lock/}
+export logdir=${logdir:-${base}/log/cron/}
+
+declare -r bindir=${base}/bin
+declare -r queuedir=${base}/queue/
+declare -r scriptdir=${base}/scripts
+declare -r dbdir=${base}/database/ # debian
+declare -r exportdir=${base}/export/
+declare -r extoverridedir=${scriptdir}/external-overrides
+declare -r ftpdir=${base}/ftp
+declare -r indices=${ftpdir}/indices
+declare -r mirrordir=${base}/mirror/
+
+declare -r accepted=${queuedir}/accepted/
+declare -r newstage=${queuedir}/newstage/
+declare -r scriptsdir=${masterdir}/scripts/debian/
+stagedir=${lockdir}/stages
+declare -r unchecked=${queuedir}/unchecked/
+declare -r public=/srv/${functionname%%-*}.debian.org
+declare -r webdir=${public}/web # not in use on security
+declare -r exportpublic=${public}/rsync/export/
+declare -r overridedir=${scriptdir}/override # debian
+
+declare -r disembargo=$queuedir/unchecked-disembargo/ # from debian-security
+declare -r done=$queuedir/done/ # from debian-security
+
+TMPDIR=${base}/tmp
+PATH=${masterdir}:${PATH}
+
+# By default, add no timestamps to stage logs
+TIMESTAMP=false
+
+declare -r HOSTNAME=$(hostname -s)
+
+# where do we want mails to go? For example log entries made with error()
+case ${HOSTNAME} in
+    fasolo|seger|coccia)
+        # Yay, ftpmaster
+        MAILTO=${MAILTO:-"ftpmaster@debian.org"}
+        ;;
+    *)
+        # Not our ftpmaster host
+        MAILTO=${MAILTO:-"root"}
+        ;;
+esac
+
+if [[ ${ARG:-none} != deploy ]]; then
+    declare -r archs=$(dak admin a list | tr '\n' ' ')
+
+    # Set the database variables
+    eval $(dak admin config db-shell)
+fi
+
+########################################################################
+# Lockfiles used by different parts of our scripts
+
+# Various lockfiles used by multiple cron scripts
+# The main dinstall lock
+declare -r LOCK_DAILY="${lockdir}/daily.lock"
+# Lock unchecked queue processing
+declare -r LOCK_UNCHECKED="${lockdir}/unchecked.lock"
+
+# This file is simply used to indicate to britney whether or not
+# the Packages file updates completed sucessfully.  It's not a lock
+# from our point of view
+declare -r LOCK_BRITNEY="$lockdir/britney.lock"
+
+# Lock buildd updates
+declare -r LOCK_BUILDD="$lockdir/buildd.lock"
+
+# Lock changelog updates
+declare -r LOCK_CHANGELOG="$lockdir/changelog.lock"
+
+# If this file exists we exit immediately after the currently running
+# function is done
+declare -r LOCK_STOP="${lockdir}/archive.stop"
+
+# Lock for deploying new code
+declare -r LOCK_DEPLOY=${LOCK_DEPLOY:-"${lockdir}/deploy"}

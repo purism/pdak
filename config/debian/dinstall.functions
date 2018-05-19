@@ -1,44 +1,21 @@
 # -*- mode:sh -*-
 
-# Remove changelog lock
-function remove_changelog_lock() {
-    rm -f $LOCK_CHANGELOG
-}
-
-# Remove all locks
-function remove_all_locks() {
-    rm -f $LOCK_DAILY $LOCK_ACCEPTED
-}
-
-# Get rid of all locks and unset the trap
-function remove_locks {
-    remove_all_locks
-    trap - EXIT TERM HUP INT QUIT
-    ts "locked part finished"
-}
-
-# Lock accepted
-function lockaccepted {
-    lockfile "$LOCK_ACCEPTED"
-    trap remove_all_locks EXIT TERM HUP INT QUIT
-}
-
 # If we error out this one is called, *FOLLOWED* by cleanup in common
 function onerror() {
     ERRDATE=$(date "+%Y.%m.%d-%H:%M:%S")
 
     subject="ATTENTION ATTENTION!"
-    if [[ ${error} = false  ]]; then
+    if [[ ${error:-false} = false  ]]; then
         subject="${subject} (continued)"
     else
         subject="${subject} (interrupted)"
     fi
-    subject="${subject} dinstall error at ${ERRDATE} in ${STAGEFILE} - (Be quiet, Brain, or I'll stab you with a Q-tip)"
+    subject="${subject} dinstall error at ${ERRDATE} in ${STAGEFILE:-} - (Be quiet, Brain, or I'll stab you with a Q-tip)"
 
-    if [[ -r ${STAGEFILE}.log  ]]; then
+    if [[ -r ${STAGEFILE:-/nonexistant}.log  ]]; then
         cat "${STAGEFILE}.log"
     else
-        echo "file ${STAGEFILE}.log does not exist, sorry"
+        echo "file ${STAGEFILE:-}.log does not exist, sorry"
     fi | mail -s "${subject}" -a "X-Debian: DAK" -a "From: Debian FTP Masters <ftpmaster@ftp-master.debian.org>" cron@ftp-master.debian.org
 }
 
@@ -121,7 +98,7 @@ function dep11() {
     local dep11dir="${scriptdir}/dep11"
     mkdir -p ${dep11dir}
     cd ${dep11dir}
-    rsync -rtq --safe-links --chmod=F644,D755 --delete --delete-after dep11-sync:/does/not/matter . || true
+    rsync -rtq --safe-links --chmod=F644,D755 --delete --delete-after dep11-sync:/does/not/matter .
 
     # Lets check!
     if ${scriptsdir}/dep11-basic-validate.py . ${dep11dir}/; then
@@ -160,35 +137,6 @@ function autocruft() {
     dak auto-decruft -s testing-proposed-updates --if-newer-version-in testing --if-newer-version-in-rm-msg "NVIT" --decruft-equal-versions
 }
 
-function fingerprints() {
-    log "Updating fingerprints"
-    dak import-keyring -L /srv/keyring.debian.org/keyrings/debian-keyring.gpg
-    dak import-keyring -L /srv/keyring.debian.org/keyrings/debian-nonupload.gpg
-
-    OUTFILE=$( gettempfile )
-    dak import-keyring --generate-users "%s" /srv/keyring.debian.org/keyrings/debian-maintainers.gpg >"${OUTFILE}"
-
-    if [[ -s ${OUTFILE} ]]; then
-        /usr/sbin/sendmail -odq -oi -t -f envelope@ftp-master.debian.org <<EOF
-From: Debian FTP Masters <ftpmaster@ftp-master.debian.org>
-To: <debian-project@lists.debian.org>
-Subject: Debian Maintainers Keyring changes
-Content-Type: text/plain; charset=utf-8
-X-Debian: DAK
-MIME-Version: 1.0
-
-The following changes to the debian-maintainers keyring have just been activated:
-
-$(cat $OUTFILE)
-
-Debian distribution maintenance software,
-on behalf of the Keyring maintainers
-
-EOF
-    fi
-    rm -f "$OUTFILE"
-}
-
 function overrides() {
     log "Writing overrides into text files"
     cd $overridedir
@@ -223,12 +171,6 @@ function release() {
     dak generate-releases -a "${public_archives[*]}"
 }
 
-function dakcleanup() {
-    log "Cleanup old packages/files"
-    dak clean-suites -m 10000
-    dak clean-queues -i "$unchecked"
-}
-
 function dedup() {
     log "Dedupe archive"
     dak archive-dedup-pool
@@ -243,39 +185,19 @@ function dedup() {
     done
 }
 
-function mklslar() {
-    local archiveroot
-    local FILENAME=ls-lR
-
-    for archive in "${public_archives[@]}"; do
-        archiveroot="$(get_archiveroot "${archive}")"
-        cd "${archiveroot}"
-
-        log "Removing any core files ..."
-        find -type f -name core -print -delete
-
-        log "Checking symlinks ..."
-        symlinks -rd .
-
-        log "Creating recursive directory listing ... "
-        rm -f ${FILENAME}.gz
-        TZ=UTC ls -lR | gzip -9c --rsyncable --no-name > ${FILENAME}.gz
-    done
-}
-
 function mkmaintainers() {
     local archiveroot
-    local indices
+    local mkmindices
 
     log 'Creating Maintainers index ... '
 
     for archive in "${public_archives[@]}"; do
         archiveroot="$(get_archiveroot "${archive}")"
-	indices="${archiveroot}/indices"
-	if ! [[ -d ${indices} ]]; then
-	    mkdir "${indices}"
+	mkmindices="${archiveroot}/indices"
+	if ! [[ -d ${mkmindices} ]]; then
+	    mkdir "${mkmindices}"
 	fi
-        cd "${indices}"
+        cd "${mkmindices}"
 
         rm -f Maintainers Maintainers.gz Uploaders Uploaders.gz
         dak make-maintainers -a "${archive}" ${scriptdir}/masterfiles/pseudo-packages.maintainers
@@ -564,8 +486,16 @@ function mirrorpush() {
                     pusharg=""
                     pname="debian"
                     ;;
+                security)
+                    fname="mirrorstart"
+                    pusharg="-a security"
+                    pname="debian-security"
+                    ;;
                 debian-debug)
                     pusharg="-a debug"
+                    ;;&
+                debian-security-debug)
+                    pusharg="-a security-debug"
                     ;;&
                 backports)
                     pusharg="-a backports"
@@ -622,8 +552,8 @@ function i18n2() {
 function stats() {
     log "Updating stats data"
     cd ${configdir}
-    ${scriptsdir}/update-ftpstats ${base}/log/* > ${base}/misc/ftpstats.data
-    R --slave --vanilla < ${base}/misc/ftpstats.R
+    #${scriptsdir}/update-ftpstats ${base}/log/* > ${base}/misc/ftpstats.data
+    #R --slave --vanilla < ${base}/misc/ftpstats.R
     dak stats arch-space > ${webdir}/arch-space
     dak stats pkg-nums > ${webdir}/pkg-nums
 }
@@ -635,7 +565,10 @@ function cleantransactions() {
 }
 
 function logstats() {
-    ${masterdir}/tools/logs.py "$1"
+    if [ "${functionname}" = ftp-master.debian.org ]; then
+        cd ${TMPDIR}
+        ${masterdir}/tools/logs.py "$1"
+    fi
 }
 
 # save timestamp when we start
@@ -668,23 +601,19 @@ EOF
 
 # extract changelogs and stuff
 function changelogs() {
-    if lockfile -r3 ${LOCK_CHANGELOG}; then
-        trap remove_changelog_lock EXIT TERM HUP INT QUIT
-        log "Extracting changelogs"
-        dak make-changelog -e -a ftp-master
-        [[ -f ${exportdir}/changelogs/filelist.yaml ]] && xz -f ${exportdir}/changelogs/filelist.yaml
-        mkdir -p ${exportpublic}/changelogs
-        cd ${exportpublic}/changelogs
-        rsync -aHW --delete --delete-after --ignore-errors ${exportdir}/changelogs/. .
-        sudo -H -u staticsync /usr/local/bin/static-update-component metadata.ftp-master.debian.org >/dev/null 2>&1 &
+    log "Extracting changelogs"
+    dak make-changelog -e -a ftp-master
+    [[ -f ${exportdir}/changelogs/filelist.yaml ]] && xz -f ${exportdir}/changelogs/filelist.yaml
+    mkdir -p ${exportpublic}/changelogs
+    cd ${exportpublic}/changelogs
+    rsync -aHW --delete --delete-after --ignore-errors ${exportdir}/changelogs/. .
+    sudo -H -u staticsync /usr/local/bin/static-update-component metadata.ftp-master.debian.org >/dev/null 2>&1 &
 
-        # dak make-changelog -e -a backports
-        # [[ -f /srv/backports-master.debian.org/export/changelogs/filelist.yaml  ]] && xz -f /srv/backports-master.debian.org/export/changelogs/filelist.yaml
-        # mkdir -p /srv/backports-master.debian.org/rsync/export/changelogs
-        # cd /srv/backports-master.debian.org/rsync/export/changelogs
-        # rsync -aHW --delete --delete-after --ignore-errors /srv/backports-master.debian.org/export/changelogs/. .
-        remove_changelog_lock
-    fi
+    # dak make-changelog -e -a backports
+    # [[ -f /srv/backports-master.debian.org/export/changelogs/filelist.yaml  ]] && xz -f /srv/backports-master.debian.org/export/changelogs/filelist.yaml
+    # mkdir -p /srv/backports-master.debian.org/rsync/export/changelogs
+    # cd /srv/backports-master.debian.org/rsync/export/changelogs
+    # rsync -aHW --delete --delete-after --ignore-errors /srv/backports-master.debian.org/export/changelogs/. .
 }
 
 # Generate a list of extra mirror files, sha256sum em and sign that
@@ -708,15 +637,12 @@ function signotherfiles() {
 
 function startup() {
     touch "${DINSTALLSTART}"
-    ts "startup"
-    lockfile -l 3600 "${LOCK_DAILY}"
+    log_timestamp "startup"
     trap onerror ERR
-    touch "${LOCK_BRITNEY}"
-    TMPFILES="${TMPFILES} ${LOCK_DAILY} ${LOCK_BRITNEY}"
 }
 
 function postcronscript() {
+    trap - ERR
     logstats ${LOGFILE}
-    state "all done"
     touch "${DINSTALLEND}"
 }

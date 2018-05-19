@@ -44,6 +44,7 @@ from daklib.dbconn import *
 from daklib import daklog
 from daklib import utils
 from daklib.dak_exceptions import CantOpenError, AlreadyLockedError, CantGetLockError
+from daklib.externalsignature import check_upload_for_external_signature_request
 from daklib.config import Config
 from daklib.archive import ArchiveTransaction, source_component_from_package_list
 from daklib.urgencylog import UrgencyLog
@@ -215,6 +216,8 @@ def comment_accept(upload, srcqueue, comments, transaction):
                 extra_archives=[upload.target_suite.archive],
             )
 
+            check_upload_for_external_signature_request(session, suite, copy_to_suite, db_binary)
+
         suite.update_last_changed()
 
     # Copy .changes if needed
@@ -256,6 +259,10 @@ def comment_accept(upload, srcqueue, comments, transaction):
 
     if upload.source is not None and not Options['No-Action']:
         urgency = upload.changes.urgency
+        # As per policy 5.6.17, the urgency can be followed by a space and a
+        # comment.  Extract only the urgency from the string.
+        if ' ' in urgency:
+          (urgency, comment) = urgency.split(' ', 1)
         if urgency not in cnf.value_list('Urgency::Valid'):
             urgency = cnf['Urgency::Default']
         UrgencyLog().log(upload.source.source, upload.source.version, urgency)
@@ -474,8 +481,9 @@ def main():
                  ('n',"no-action","Process-Policy::Options::No-Action")]
 
     for i in ["help", "no-action"]:
-        if not cnf.has_key("Process-Policy::Options::%s" % (i)):
-            cnf["Process-Policy::Options::%s" % (i)] = ""
+        key = "Process-Policy::Options::%s" % i
+        if key not in cnf:
+            cnf[key] = ""
 
     queue_name = apt_pkg.parse_commandline(cnf.Cnf,Arguments,sys.argv)
 

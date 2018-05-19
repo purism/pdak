@@ -140,9 +140,10 @@ def main ():
                "architecture", "binary", "binary-only", "carbon-copy", "component",
                "done", "help", "no-action", "partial", "rdep-check", "reason",
                "source-only", "Do-Close" ]:
-        if not cnf.has_key("Rm::Options::%s" % (i)):
-            cnf["Rm::Options::%s" % (i)] = ""
-    if not cnf.has_key("Rm::Options::Suite"):
+        key = "Rm::Options::%s" % (i)
+        if key not in cnf:
+            cnf[key] = ""
+    if "Rm::Options::Suite" not in cnf:
         cnf["Rm::Options::Suite"] = "unstable"
 
     arguments = apt_pkg.parse_commandline(cnf.Cnf, Arguments, sys.argv)
@@ -162,7 +163,7 @@ def main ():
             or (Options["Binary"] and Options["Binary-Only"])
             or (Options["Binary-Only"] and Options["Source-Only"])):
         utils.fubar("Only one of -b/--binary, -B/--binary-only and -S/--source-only can be used.")
-    if Options.has_key("Carbon-Copy") and not Options.has_key("Done"):
+    if "Carbon-Copy" not in Options and "Done" not in Options:
         utils.fubar("can't use -C/--carbon-copy without also using -d/--done option.")
     if Options["Architecture"] and not Options["Partial"]:
         utils.warn("-a/--architecture implies -p/--partial.")
@@ -179,31 +180,6 @@ def main ():
     if not Options["No-Action"] and not Options["Carbon-Copy"] \
            and not Options["Done"] and Options["Reason"].find("[auto-cruft]") == -1:
         utils.fubar("Need a -C/--carbon-copy if not closing a bug and not doing a cruft removal.")
-
-    # Process -C/--carbon-copy
-    #
-    # Accept 3 types of arguments (space separated):
-    #  1) a number - assumed to be a bug number, i.e. nnnnn@bugs.debian.org
-    #  2) the keyword 'package' - cc's $package@packages.debian.org for every argument
-    #  3) contains a '@' - assumed to be an email address, used unmodified
-    #
-    carbon_copy = []
-    for copy_to in utils.split_args(Options.get("Carbon-Copy")):
-        if copy_to.isdigit():
-            if cnf.has_key("Dinstall::BugServer"):
-                carbon_copy.append(copy_to + "@" + cnf["Dinstall::BugServer"])
-            else:
-                utils.fubar("Asked to send mail to #%s in BTS but Dinstall::BugServer is not configured" % copy_to)
-        elif copy_to == 'package':
-            for package in arguments:
-                if cnf.has_key("Dinstall::PackagesServer"):
-                    carbon_copy.append(package + "@" + cnf["Dinstall::PackagesServer"])
-                if cnf.has_key("Dinstall::TrackingServer"):
-                    carbon_copy.append(package + "@" + cnf["Dinstall::TrackingServer"])
-        elif '@' in copy_to:
-            carbon_copy.append(copy_to)
-        else:
-            utils.fubar("Invalid -C/--carbon-copy argument '%s'; not a bug number, 'package' or email address." % (copy_to))
 
     if Options["Binary"]:
         field = "b.package"
@@ -255,17 +231,38 @@ def main ():
 
     if Options["Binary"]:
         # Removal by binary package name
-        q = session.execute("SELECT b.package, b.version, a.arch_string, b.id, b.maintainer FROM binaries b, bin_associations ba, architecture a, suite su, files f, files_archive_map af, component c WHERE ba.bin = b.id AND ba.suite = su.id AND b.architecture = a.id AND b.file = f.id AND af.file_id = f.id AND af.archive_id = su.archive_id AND af.component_id = c.id %s %s %s %s" % (con_packages, con_suites, con_components, con_architectures))
+        q = session.execute("""
+                SELECT b.package, b.version, a.arch_string, b.id, b.maintainer, s.source
+                FROM binaries b
+                     JOIN source s ON s.id = b.source
+                     JOIN bin_associations ba ON ba.bin = b.id
+                     JOIN architecture a ON a.id = b.architecture
+                     JOIN suite su ON su.id = ba.suite
+                     JOIN files f ON f.id = b.file
+                     JOIN files_archive_map af ON af.file_id = f.id AND af.archive_id = su.archive_id
+                     JOIN component c ON c.id = af.component_id
+                WHERE TRUE %s %s %s %s
+        """ % (con_packages, con_suites, con_components, con_architectures))
         to_remove.extend(q)
     else:
         # Source-only
         if not Options["Binary-Only"]:
-            q = session.execute("SELECT s.source, s.version, 'source', s.id, s.maintainer FROM source s, src_associations sa, suite su, archive, files f, files_archive_map af, component c WHERE sa.source = s.id AND sa.suite = su.id AND archive.id = su.archive_id AND s.file = f.id AND af.file_id = f.id AND af.archive_id = su.archive_id AND af.component_id = c.id %s %s %s" % (con_packages, con_suites, con_components))
+            q = session.execute("""
+                    SELECT s.source, s.version, 'source', s.id, s.maintainer, s.source
+                    FROM source s
+                         JOIN src_associations sa ON sa.source = s.id
+                         JOIN suite su ON su.id = sa.suite
+                         JOIN archive ON archive.id = su.archive_id
+                         JOIN files f ON f.id = s.file
+                         JOIN files_archive_map af ON af.file_id = f.id AND af.archive_id = su.archive_id
+                         JOIN component c ON c.id = af.component_id
+                    WHERE TRUE %s %s %s
+            """ % (con_packages, con_suites, con_components))
             to_remove.extend(q)
         if not Options["Source-Only"]:
             # Source + Binary
             q = session.execute("""
-                    SELECT b.package, b.version, a.arch_string, b.id, b.maintainer
+                    SELECT b.package, b.version, a.arch_string, b.id, b.maintainer, s.source
                     FROM binaries b
                          JOIN bin_associations ba ON b.id = ba.bin
                          JOIN architecture a ON b.architecture = a.id
@@ -281,6 +278,29 @@ def main ():
     if not to_remove:
         print "Nothing to do."
         sys.exit(0)
+
+    # Process -C/--carbon-copy
+    #
+    # Accept 3 types of arguments (space separated):
+    #  1) a number - assumed to be a bug number, i.e. nnnnn@bugs.debian.org
+    #  2) the keyword 'package' - cc's $package@packages.debian.org for every argument
+    #  3) contains a '@' - assumed to be an email address, used unmodified
+    #
+    carbon_copy = []
+    for copy_to in utils.split_args(Options.get("Carbon-Copy")):
+        if copy_to.isdigit():
+            if "Dinstall::BugServer" in cnf:
+                carbon_copy.append(copy_to + "@" + cnf["Dinstall::BugServer"])
+            else:
+                utils.fubar("Asked to send mail to #%s in BTS but Dinstall::BugServer is not configured" % copy_to)
+        elif copy_to == 'package':
+            for package in set([s[5] for s in to_remove]):
+                if "Dinstall::PackagesServer" in cnf:
+                    carbon_copy.append(package + "@" + cnf["Dinstall::PackagesServer"])
+        elif '@' in copy_to:
+            carbon_copy.append(copy_to)
+        else:
+            utils.fubar("Invalid -C/--carbon-copy argument '%s'; not a bug number, 'package' or email address." % (copy_to))
 
     # If we don't have a reason; spawn an editor so the user can add one
     # Write the rejection email out as the <foo>.reason file
@@ -304,9 +324,9 @@ def main ():
         architecture = i[2]
         maintainer = i[4]
         maintainers[maintainer] = ""
-        if not d.has_key(package):
+        if package not in d:
             d[package] = {}
-        if not d[package].has_key(version):
+        if version not in d[package]:
             d[package][version] = []
         if architecture not in d[package][version]:
             d[package][version].append(architecture)
