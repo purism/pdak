@@ -327,6 +327,7 @@ function laniakea_dataimport() {
     /usr/local/lib/laniakea/lk-dataimport repo landing
     /usr/local/lib/laniakea/lk-dataimport repo green
     /usr/local/lib/laniakea/lk-dataimport repo laboratory
+    /usr/local/lib/laniakea/lk-dataimport repo purple
 }
 
 function laniakea_ariadne() {
